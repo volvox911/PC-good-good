@@ -157,3 +157,12 @@ fixed; each high-severity one has a regression test that fails on the previous c
    Height 1920 (= canvas), default Custom CSS, untick *Shutdown source when not visible* and
    *Refresh browser when scene becomes active*.
 4. Put it above the camera; Transform → Reset Transform; size/position via the dashboard only.
+
+## 8. Memory sampling (demo server, after the review fixes)
+
+The demo server (full pipeline, ~2.5 samples/s, 104 recognition jobs, 64 overlay updates) was
+sampled every 30 s for 12 minutes: RSS stayed between 144.5 and 157 MB. The resting baseline
+moved from 144.5 MB to 144.9 MB (+0.4 MB); the short peaks are high-quality capture buffers that
+are released. CPU averaged ~2.6 %. Visual memory held 10 entries (duplicates are not stored).
+This is evidence that memory stays flat, not a substitute for the 2–3 hour soak with real OBS
+in section 4.
