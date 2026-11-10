@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Local configuration and secrets — never commit
+.env
+.env.*
+!.env.example
+secrets.json
+admin_token
+data/
+*.sqlite3
+*.sqlite3-*
+logs/
+
+# Test artifacts
+tests/browser/__screenshots__/actual/
+test-results/
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

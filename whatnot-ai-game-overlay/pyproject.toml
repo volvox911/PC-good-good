@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whatnot-ai-game-overlay"
+version = "1.0.0"
+description = "Automatic retro video game recognition with live PriceCharting values for OBS / Whatnot streams (Wasteland Price-O-Matic overlay)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+  "anthropic>=2.7,<3",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4",
+  "httpx>=0.27,<1",
+  "websockets>=13",
+  "opencv-python-headless>=4.10",
+  "numpy>=1.26",
+  "pillow>=10.4",
+  "rapidfuzz>=3.9",
+  "keyring>=25",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "playwright>=1.47",
+]
+
+[project.scripts]
+whatnot-overlay = "gameoverlay.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["gameoverlay*"]
+
+[tool.setuptools.package-data]
+gameoverlay = ["web/**/*", "fixtures/**/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+  "browser: renders the overlay/dashboard in headless Chromium (needs Playwright browser)",
+  "live: calls real external services; skipped unless credentials are configured",
+  "slow: long-running soak tests",
+]
+addopts = "-ra"
