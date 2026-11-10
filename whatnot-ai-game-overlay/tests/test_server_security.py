@@ -13,7 +13,7 @@ from gameoverlay.overlay.hub import DemoDataRejected
 from gameoverlay.server import create_app
 from gameoverlay.services import Services
 
-SAMPLE_STRINGS = ["42.50", "109.99", "599.00", "4250", "10999", "59900", "Ocarina"]
+SAMPLE_STRINGS = ["42.50", "109.99", "599.00", "4250", "10999", "59900", "Ocarina", "SUPER MARIO", "Majora"]
 
 
 @pytest.fixture
@@ -38,28 +38,42 @@ def login(client):
 
 
 def test_public_overlay_has_no_secrets_or_sample_data(live):
-    for path in ["/overlay", "/overlay/static/overlay.js", "/overlay/static/overlay-core.js", "/overlay/static/overlay.css"]:
+    for path in ["/overlay", "/overlay/static/overlay.js", "/overlay/static/overlay-core.js", "/overlay/static/style.css"]:
         r = live.get(path)
         assert r.status_code == 200, path
         body = r.text
         for secret in ("sk-ant-test-secret-value-123456", "obs-secret-password-xyz", DEMO_TOKEN, live.svc.admin_token):
             assert secret not in body
-        if path != "/overlay/static/overlay.css":
+        if path != "/overlay/static/style.css":
             for s in SAMPLE_STRINGS:
                 assert s not in body, f"sample value {s!r} found in live overlay asset {path}"
         assert "/api/" not in body, "overlay assets must not reference admin routes"
 
 
 def test_bundled_fonts_are_served_locally(live):
-    for name in ("caveat-brush.ttf", "oswald.ttf"):
-        r = live.get(f"/overlay/static/{name}")
-        assert r.status_code == 200 and r.headers["content-type"] == "font/ttf" and len(r.content) > 10_000
+    """The exact families from the design's font guide, served by the app (no CDN)."""
     import re
 
-    css = live.get("/overlay/static/overlay.css").text
+    for name in ("knewave.ttf", "anton.ttf", "barlow-condensed-800.ttf", "barlow-condensed-900-italic.ttf"):
+        r = live.get(f"/overlay/static/{name}")
+        assert r.status_code == 200 and r.headers["content-type"] == "font/ttf" and len(r.content) > 10_000
+    for name in ("OFL-Knewave.txt", "OFL-Anton.txt", "OFL-BarlowCondensed.txt"):
+        assert "SIL OPEN FONT LICENSE" in live.get(f"/overlay/static/{name}").text.upper()
+    css = live.get("/overlay/static/style.css").text
+    for family in ("Knewave", "Anton", "Barlow Condensed"):
+        assert re.search(rf"@font-face\s*\{{\s*font-family:'{family}'", css), family
     for target in re.findall(r"url\(\s*[\"']?([^\"')]+)", css):
         assert target.startswith(("data:", "/overlay/static/", "%23")), f"external dependency: {target[:60]}"
-    assert "@import" not in css
+    assert "@import" not in css and "googleapis" not in live.get("/overlay").text
+
+
+def test_frame_skin_is_served_unchanged(live):
+    import hashlib
+
+    r = live.get("/overlay/static/header-skin.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    # the operator's text-free frame from the approved design, byte for byte
+    assert hashlib.sha256(r.content).hexdigest() == "56ce28994a88944e5426f1b38356403c011420fba56e6a38f0f45ade8b9b5d5d"
 
 
 def test_health_is_minimal(live):
@@ -276,3 +290,15 @@ def test_missing_credentials_startup(tmp_path, monkeypatch):
         assert st["pricecharting"]["state"] == "not_configured"
         assert st["secrets"]["pricecharting_token"]["configured"] is False
         assert client.get("/overlay").status_code == 200  # app still serves safely
+
+
+def test_overlay_page_is_stamped_with_build(live):
+    import re
+
+    html = live.get("/overlay").text
+    m = re.search(r'name="overlay-build" content="([0-9a-f]{12})"', html)
+    assert m, "overlay page carries its build id"
+    for asset in ("style.css", "overlay.js", "header-skin.png"):
+        assert f"/overlay/static/{asset}?v={m.group(1)}" in html, asset
+    with live.websocket_connect("/ws/overlay") as ws:
+        assert ws.receive_json()["build"] == m.group(1)

@@ -222,13 +222,17 @@ class OverlaySettings(BaseModel):
     orientation: OrientationMode = "auto"
     opacity: float = Field(default=1.0, ge=0.3, le=1.0)
     font_scale: float = Field(default=1.0, ge=0.8, le=1.3)
-    # Extra distance from the anchored edge, as a fraction of the canvas height.
-    edge_offset: float = Field(default=0.008, ge=0.0, le=0.3)
+    # Extra distance from the anchored edge, as a fraction of the canvas height. The strip
+    # already keeps the design's own small margin; 0 places it exactly as designed.
+    edge_offset: float = Field(default=0.0, ge=0.0, le=0.3)
     # Source attribution line is off by default; enable it if your PriceCharting
     # commercial agreement requires on-screen attribution.
     show_attribution: bool = False
     attribution_text: str = Field(default="SOURCE: PRICECHARTING", max_length=60)
     show_retrieval_time: bool = False
+    # Viewer overlay shows prices rounded to whole dollars (operator request). The dashboard
+    # and history always keep exact cents. Values under $1 are shown exactly, never as $0.
+    round_whole_dollars: bool = True
     # Keep the band on screen between games (cleared, no prices) instead of hiding it.
     idle_panel: bool = True
     idle_title: str = Field(default="Price Guide", max_length=40)
@@ -246,7 +250,7 @@ class OverlaySettings(BaseModel):
         return v
 
 
-SETTINGS_VERSION = 2
+SETTINGS_VERSION = 3
 
 
 def migrate_settings(raw: dict) -> dict:
@@ -260,6 +264,15 @@ def migrate_settings(raw: dict) -> dict:
         # v2: the sign now sits flush at the top; move it up unless the operator changed it.
         if overlay.get("edge_offset") in (None, 0.035):
             overlay["edge_offset"] = 0.008
+        raw["overlay"] = overlay
+    if version < 3:
+        # v3: the price strip spans the full width at the top (or bottom) and keeps its own
+        # small margin, so the old default offset goes; corner/side positions map to top.
+        overlay = dict(raw.get("overlay") or {})
+        if overlay.get("edge_offset") in (None, 0.008):
+            overlay["edge_offset"] = 0.0
+        position = str(overlay.get("position") or "top-center")
+        overlay["position"] = "bottom-center" if position.startswith("bottom-") else "top-center"
         raw["overlay"] = overlay
     raw["settings_version"] = SETTINGS_VERSION
     return raw

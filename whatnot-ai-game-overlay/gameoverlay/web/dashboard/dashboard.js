@@ -118,13 +118,34 @@ function cameraFailing(s) {
   return s.engine.state === "error" && /camera capture failed/i.test(s.engine.reason || "");
 }
 
+const NOTICE_TTL_S = 120;
+
+function noticeDismissed(key) {
+  try {
+    return localStorage.getItem(`dismissed:${key}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function dismissNotice(key) {
+  try {
+    localStorage.setItem(`dismissed:${key}`, "1");
+  } catch {}
+  if (status) renderBanner(status);
+}
+
 function renderBanner(s) {
   const msgs = [];
+  const notices = []; // informational, dismissible: [key, text]
   if (cameraFailing(s)) {
     msgs.push(`${s.engine.reason}. In OBS, check that “${s.obs.cameraSource}” shows live video, untick “Deactivate when not showing” in its Properties, and close any other app using the camera.`);
   }
   if (s.mode === "demo") msgs.push("DEMO MODE — mock camera, mock Claude and mock PriceCharting data. Everything shown is watermarked sample data.");
-  if (s.session.recoveredFromCrash) msgs.push("Recovered from an unexpected shutdown. Settings and caches were restored.");
+  const crashKey = `crash:${s.session.id}`;
+  if (s.session.recoveredFromCrash && Date.now() / 1000 - s.session.startedAt < NOTICE_TTL_S && !noticeDismissed(crashKey)) {
+    notices.push([crashKey, "The app wasn't closed cleanly last time (for example, the window was closed). Settings and caches were restored."]);
+  }
   if (s.mode !== "demo") {
     if (!s.secrets.anthropic_api_key.configured) msgs.push("Anthropic API key missing — automatic recognition is disabled (manual search still works).");
     if (!s.secrets.pricecharting_token.configured) msgs.push("PriceCharting token missing — no prices can be retrieved.");
@@ -134,9 +155,14 @@ function renderBanner(s) {
   if (s.anthropic.state === "auth_failed") msgs.push("Anthropic rejected the API key. Update it in Settings → Credentials.");
   if (s.anthropic.usage && s.anthropic.usage.limitReached) msgs.push("Claude session spend limit reached — detection paused. Raise the limit in Settings → Recognition to continue.");
   const b = $("banner");
-  b.hidden = msgs.length === 0;
+  b.hidden = msgs.length === 0 && notices.length === 0;
   b.classList.toggle("err", msgs.some((m) => /rejected|missing|limit|capture failed/i.test(m)));
-  b.replaceChildren(...msgs.map((m) => h("div", { text: m })));
+  b.replaceChildren(
+    ...msgs.map((m) => h("div", { text: m })),
+    ...notices.map(([key, text]) =>
+      h("div", { class: "notice" }, h("span", { text }), h("button", { class: "ghost small", title: "Dismiss", onclick: () => dismissNotice(key) }, "Dismiss")),
+    ),
+  );
 }
 
 function renderCurrent(s) {
@@ -391,18 +417,12 @@ const SETTINGS_TABS = {
     { path: "recognition.use_server_fallbacks", label: "Refusal fallbacks (server-side)", type: "checkbox" },
   ],
   "Display & Overlay": [
-    { path: "overlay.size", label: "Size", type: "select", options: ["compact", "balanced", "large"] },
-    { path: "overlay.position", label: "Position", type: "select", options: ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right", "side-left", "side-right"] },
-    { path: "overlay.orientation", label: "Layout", type: "select", options: ["auto", "portrait", "landscape"] },
+    { path: "overlay.position", label: "Position", type: "select", options: ["top-center", "bottom-center"], help: "The price strip spans the width of the frame; top is the default." },
+    { path: "overlay.edge_offset", label: "Extra distance from the edge (fraction of height)", type: "number", min: 0, max: 0.3, step: 0.005, help: "0 = exactly as designed. Raise it (e.g. 0.03) if Whatnot's own buttons cover the strip." },
     { path: "overlay.opacity", label: "Opacity", type: "number", min: 0.3, max: 1, step: 0.05 },
-    { path: "overlay.font_scale", label: "Font scale", type: "number", min: 0.8, max: 1.3, step: 0.05 },
-    { path: "overlay.edge_offset", label: "Distance from edge (fraction of height)", type: "number", min: 0, max: 0.3, step: 0.005 },
-    { path: "overlay.idle_panel", label: "Keep the panel on screen between games", type: "checkbox", help: "When a game leaves, the panel stays up with its prices cleared. Untick to hide it completely between games." },
+    { path: "overlay.idle_panel", label: "Keep the strip on screen between games", type: "checkbox", help: "When a game leaves, the strip stays up with its prices cleared. Untick to hide it completely between games." },
     { path: "overlay.idle_title", label: "Text shown between games", type: "text", help: "Shown in the title spot while no game is on screen (leave empty for none)." },
-    { path: "overlay.show_retrieval_time", label: "Show “AS OF” retrieval time", type: "checkbox" },
-    { path: "overlay.show_attribution", label: "Show source attribution", type: "checkbox", help: "Off by default. Turn on if your PriceCharting commercial agreement requires on-screen attribution." },
-    { path: "overlay.attribution_text", label: "Attribution text", type: "text", help: "Used only when source attribution is shown." },
-    { path: "overlay.reduced_motion", label: "Reduce motion", type: "checkbox" },
+    { path: "overlay.round_whole_dollars", label: "Round prices to whole dollars on the overlay", type: "checkbox", help: "On: $42.50 shows as $43. Off: exact cents. Your dashboard and history always show exact cents." },
     { path: "overlay.canvas_width", label: "OBS canvas width (preview)", type: "number", min: 320, max: 7680 },
     { path: "overlay.canvas_height", label: "OBS canvas height (preview)", type: "number", min: 320, max: 7680 },
     { path: "display.unidentified_grace_s", label: "Hide old prices after unidentified item (s)", type: "number", min: 0, max: 120, step: 0.5 },
@@ -671,8 +691,7 @@ const WIZ = [
       settings = await api("/api/settings");
       const url = status ? status.overlay.url : `${location.origin}/overlay`;
       return h("div", {},
-        fieldEl({ path: "overlay.size", label: "Size", type: "select", options: ["compact", "balanced", "large"] }),
-        fieldEl({ path: "overlay.position", label: "Position", type: "select", options: ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right", "side-left", "side-right"] }),
+        fieldEl({ path: "overlay.position", label: "Position", type: "select", options: ["top-center", "bottom-center"] }),
         fieldEl({ path: "overlay.canvas_width", label: "OBS canvas width", type: "number", min: 320, max: 7680 }),
         fieldEl({ path: "overlay.canvas_height", label: "OBS canvas height", type: "number", min: 320, max: 7680 }),
         h("h3", { text: "Add the overlay to OBS" }),

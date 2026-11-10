@@ -38,7 +38,7 @@ Single local Python process (FastAPI + asyncio) — no Docker, no cloud hosting,
 | `security.py` | Host check (DNS rebinding), one-time sign-in codes, signed session cookies, CSRF, Origin checks, CSP/security headers. |
 | `server.py` | Routes. `services.py` wires live vs. demo components. `__main__.py` CLI. |
 | `demo/` | Fake OBS server, mock PriceCharting transport, mock vision, scene renderer, demo world, preview samples. |
-| `web/overlay/` | `index.html`, `overlay.css` (all visuals), `overlay-core.js` (pure logic), `overlay.js` (DOM, WebSocket, transitions). |
+| `web/overlay/` | The operator's price-strip package: `index.html`, `style.css`, `header-skin.png` (text-free frame art), bundled OFL fonts; `overlay-core.js` (pure logic: validation, price text, fit) and `overlay.js` (DOM, text fitting, WebSocket, self-reload after updates). |
 | `web/dashboard/` | Operator UI. |
 
 ## State machine
@@ -88,7 +88,8 @@ Single local Python process (FastAPI + asyncio) — no Docker, no cloud hosting,
             "verified": true, "looseUsd": 42.5, "completeUsd": 109.99, "newUsd": 599.0,
             "looseCents": 4250, "completeCents": 10999, "newCents": 59900,
             "retrievedAt": "2026-11-10T14:32:00Z", "freshness": "fresh", "demo": false},
- "layout": {"size": "balanced", "position": "top-center", "showAttribution": false, "…": "…"}}
+ "layout": {"position": "top-center", "edgeOffset": 0, "idlePanel": true, "roundWholeDollars": true, "…": "…"},
+ "build": "<overlay files fingerprint>"}
 ```
 
 The overlay formats from the integer cents; it rejects records where cents and USD disagree.

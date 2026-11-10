@@ -1,0 +1,133 @@
+/*
+ * JOE DIRT  /  MOBILE PRICE STRIP
+ * 1080×1920 mobile portrait OBS Browser Source
+ * Original frame retained as a transparent, text-free PNG (assets/header-skin.png).
+ * Dynamic game title, platform, and prices are real DOM, never painted into asset.
+ * Fonts: Knewave, Barlow Condensed, Anton (exact families from FONTS_AND_LICENSES.md),
+ * bundled with the app under the SIL Open Font License — no CDN; fallback stacks below.
+ */
+@font-face { font-family:'Knewave'; src:url(/overlay/static/knewave.ttf) format('truetype'); font-weight:400; font-style:normal; font-display:block; }
+@font-face { font-family:'Anton'; src:url(/overlay/static/anton.ttf) format('truetype'); font-weight:400; font-style:normal; font-display:block; }
+@font-face { font-family:'Barlow Condensed'; src:url(/overlay/static/barlow-condensed-800.ttf) format('truetype'); font-weight:800; font-style:normal; font-display:block; }
+@font-face { font-family:'Barlow Condensed'; src:url(/overlay/static/barlow-condensed-900-italic.ttf) format('truetype'); font-weight:900; font-style:italic; font-display:block; }
+:root {
+  --header-top: 9px;
+  --header-horizontal-margin: 3px;
+  --chalk: #fff0d5;
+  --ink: #1e1a16;
+  --shadow: rgba(0, 0, 0, 0.85);
+  --swoosh: #c50e14;
+}
+html, body { width:100%; height:100%; margin:0; padding:0; background:transparent; overflow:hidden; }
+*, *::before, *::after { box-sizing: border-box; }
+body { -webkit-font-smoothing: antialiased; text-rendering:optimizeLegibility; }
+.broadcast { position:relative; width:100vw; height:100vh; background:transparent; overflow:hidden; pointer-events:none; }
+body.preview, body.preview .broadcast { background:#030303; }
+.header {
+  position:absolute;
+  left:50%; top:var(--header-top);
+  width:calc(100vw - var(--header-horizontal-margin) * 2);
+  max-width:1200px;
+  aspect-ratio:941 / 150;
+  transform:translateX(-50%);
+  container-type:inline-size;
+  isolation:isolate;
+}
+.frame-skin {position:absolute;inset:0;width:100%;height:100%;object-fit:fill;user-select:none;}
+.title-area { position:absolute;left:13.9%;top:17%;width:32.3%;height:65%; }
+.title-frame {
+  position:absolute;left:0;top:0;width:100%;height:55%;
+  display:flex;align-items:center;overflow:visible;
+}
+.game-title {
+  display:block;flex:0 0 auto;width:max-content;white-space:nowrap;max-width:none;
+  font-family:'Knewave','DejaVu Sans Condensed',Impact,'Arial Black',sans-serif;
+  font-size:5.13cqw; font-weight:900; line-height:1.12;
+  font-style:italic;letter-spacing:-.12cqw;text-transform:uppercase;
+  color:var(--chalk);
+  transform:scaleX(var(--title-fit,1));transform-origin:left center;
+  text-shadow: .14cqw .26cqw 0 rgba(1,1,1,.84), -.06cqw -.06cqw 0 rgba(37,31,22,.7), 0 0 .22cqw rgba(255,227,181,.18);
+  -webkit-text-stroke: .055cqw rgba(28,22,17,.22);
+}
+.flourish {position:absolute;left:4%;top:52%;width:88%;height:10%;filter:drop-shadow(0 .16cqw .06cqw #080707);}
+.system-frame {position:absolute;left:0;top:61%;width:100%;height:31%;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.game-system {
+  font-family:'Barlow Condensed','DejaVu Sans Condensed',Impact,sans-serif;
+  font-size:3.05cqw; line-height:1.0; font-weight:900;font-style:italic;
+  letter-spacing:.02cqw;flex:0 0 auto;white-space:nowrap;text-transform:uppercase;
+  color:#f5e4c7;
+  transform:scaleX(var(--system-fit,1));
+  text-shadow: .12cqw .16cqw 0 #030303, 0 0 .16cqw #fff6d366;
+}
+.value-plate {
+  position:absolute; top:24.4%; width:14.2%; height:52%;
+  display:flex; flex-direction:column;align-items:center;
+  text-align:center;
+}
+.loose-plate {left:51.3%;} .complete-plate {left:66.8%;} .new-plate{left:82.5%;}
+.plate-label {
+  width:100%;height:32%;display:flex;align-items:center;justify-content:center;
+  font:800 2.47cqw/1 'Barlow Condensed','DejaVu Sans Condensed',Impact,sans-serif;
+  letter-spacing:.02cqw;white-space:nowrap;color:#f7ead1;
+  text-shadow:0 .09cqw .10cqw #000;
+}
+.plate-price {
+  width:98%;height:68%;display:flex;align-items:center;justify-content:center;
+  overflow:visible;
+}
+.price-text {
+  display:inline-block;flex:0 0 auto;width:max-content;white-space:nowrap;
+  font:900 5.35cqw/.92 'Anton','DejaVu Sans Condensed',Impact,'Arial Black',sans-serif;
+  color:#141412;letter-spacing:-.065cqw;
+  transform:scaleX(var(--fit,1));transform-origin:center center;
+  text-shadow:.045cqw .08cqw 0 rgba(50,37,18,.17);
+}
+@media (max-width:400px) {
+  :root {--header-top:4px; --header-horizontal-margin:2px;}
+}
+@media (prefers-reduced-motion:reduce) {*,*::before,*::after {animation:none!important;transition:none!important;}}
+
+/* ===================================================================================
+ * App integration — not part of the visual design above.
+ * =================================================================================== */
+
+/* Operator settings: distance from the edge, top/bottom anchoring and opacity. With the
+   defaults the strip sits exactly where the design puts it. */
+.header { top:calc(var(--header-top) + var(--edge-extra, 0px)); opacity:var(--strip-opacity, 1); }
+.header.at-bottom { top:auto; bottom:calc(var(--header-top) + var(--edge-extra, 0px)); }
+
+/* Nothing is drawn until the first verified state arrives (or between games when the
+   operator turned the idle strip off). */
+body[data-overlay="hidden"] .header { visibility:hidden; }
+
+/* Demo mode / dashboard design preview only: sample values are never shown unmarked. */
+.demo-mark {
+  position:absolute; left:50%; top:calc(100% + 1.2 * var(--u, 1cqw)); transform:translateX(-50%);
+  padding:.35em .9em; white-space:nowrap;
+  font:800 calc(2.6 * var(--u, 1cqw))/1 'Barlow Condensed','DejaVu Sans Condensed',Impact,sans-serif;
+  letter-spacing:.06em; color:#141412; background:#ffd23f; border:.18em solid #141412;
+}
+.demo-mark[hidden] { display:none; }
+
+/* Older OBS versions (Chromium before 105) have no container units. overlay.js keeps --u
+   equal to 1% of the strip's width in px, so the same proportions apply there. */
+@supports not (width: 1cqw) {
+  .game-title {
+    font-size:calc(5.13 * var(--u)); letter-spacing:calc(-.12 * var(--u));
+    text-shadow: calc(.14 * var(--u)) calc(.26 * var(--u)) 0 rgba(1,1,1,.84), calc(-.06 * var(--u)) calc(-.06 * var(--u)) 0 rgba(37,31,22,.7), 0 0 calc(.22 * var(--u)) rgba(255,227,181,.18);
+    -webkit-text-stroke: calc(.055 * var(--u)) rgba(28,22,17,.22);
+  }
+  .flourish { filter:drop-shadow(0 calc(.16 * var(--u)) calc(.06 * var(--u)) #080707); }
+  .game-system {
+    font-size:calc(3.05 * var(--u)); letter-spacing:calc(.02 * var(--u));
+    text-shadow: calc(.12 * var(--u)) calc(.16 * var(--u)) 0 #030303, 0 0 calc(.16 * var(--u)) #fff6d366;
+  }
+  .plate-label {
+    font-size:calc(2.47 * var(--u)); letter-spacing:calc(.02 * var(--u));
+    text-shadow:0 calc(.09 * var(--u)) calc(.10 * var(--u)) #000;
+  }
+  .price-text {
+    font-size:calc(5.35 * var(--u)); letter-spacing:calc(-.065 * var(--u));
+    text-shadow:calc(.045 * var(--u)) calc(.08 * var(--u)) 0 rgba(50,37,18,.17);
+  }
+}

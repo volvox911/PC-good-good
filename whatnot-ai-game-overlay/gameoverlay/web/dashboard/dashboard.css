@@ -98,6 +98,7 @@ code { background: #101113; padding: 2px 6px; border-radius: 5px; }
 
 .banner { margin: 10px 16px 0; padding: 10px 14px; border-radius: 8px; background: #3b2a0d; border: 1px solid var(--warn); }
 .banner.err { background: #3a1412; border-color: var(--err); }
+.banner .notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* layout */
 .grid {

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from importlib import resources
@@ -65,7 +66,7 @@ def _static(sub: str, name: str) -> FileResponse:
         raise HTTPException(404)
     p = _web(sub, name)
     media = {".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml",
-             ".ttf": "font/ttf", ".txt": "text/plain"}.get(p.suffix)
+             ".png": "image/png", ".ttf": "font/ttf", ".txt": "text/plain"}.get(p.suffix)
     return FileResponse(p, media_type=media)
 
 
@@ -119,7 +120,13 @@ def create_app(config: AppConfig, services: Services | None = None, login_code: 
     # ================================================================ public: overlay
     @app.get("/overlay", response_class=HTMLResponse)
     async def overlay_page() -> Response:
-        return FileResponse(_web("overlay", "index.html"), media_type="text/html")
+        # Stamp the build so an open OBS page can tell it is outdated and reload itself, and
+        # version every asset URL so OBS never mixes a cached old file with a new page.
+        b = svc.hub.build
+        html = _web("overlay", "index.html").read_text(encoding="utf-8")
+        html = re.sub(r"<head>", f'<head>\n  <meta name="overlay-build" content="{b}" />', html, count=1)
+        html = re.sub(r'(/overlay/static/[\w.-]+\.(?:css|js|png))(?=")', rf"\1?v={b}", html)
+        return HTMLResponse(html)
 
     @app.get("/overlay/static/{name}")
     async def overlay_static(name: str) -> Response:

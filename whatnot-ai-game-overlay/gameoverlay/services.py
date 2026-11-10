@@ -161,13 +161,20 @@ class Services:
             log.warning("previous session did not shut down cleanly; settings and caches were recovered")
 
     async def stop(self) -> None:
-        await self.engine.stop()
-        await self.obs.stop()
-        await self.hub.stop()
+        # Record the clean shutdown first: when the console window is closed, Windows only
+        # gives the process a few seconds, and the rest of the teardown is best-effort.
+        try:
+            self.db.end_session(self.session_id)
+        except Exception:  # pragma: no cover
+            log.exception("could not record clean shutdown")
+        for step in (self.engine.stop, self.obs.stop, self.hub.stop):
+            try:
+                await asyncio.wait_for(step(), 3)
+            except Exception:
+                log.warning("shutdown step %s did not finish cleanly", getattr(step, "__qualname__", step))
         if self.fake_obs:
             await self.fake_obs.stop()
         await self.pc_client.aclose()
-        self.db.end_session(self.session_id)
         self.db.close()
 
     # ------------------------------------------------------------------ change notification

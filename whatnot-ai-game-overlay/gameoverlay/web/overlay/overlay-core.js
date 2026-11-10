@@ -9,14 +9,27 @@
 export const KINDS = ["loose", "complete", "new"];
 export const NA = "N/A";
 
-const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-
 /** 4295 -> "$42.95"; 12345678 -> "$123,456.78"; null/0/invalid -> "N/A" (never "$0.00"). */
 export function formatCents(cents) {
   if (cents === null || cents === undefined || !Number.isSafeInteger(cents) || cents <= 0) return NA;
   const dollars = Math.floor(cents / 100);
   const rem = cents % 100;
   return "$" + String(dollars).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "." + String(rem).padStart(2, "0");
+}
+
+/**
+ * Viewer-facing price text. With `round` (default), rounds half-up to whole dollars
+ * ("$12.50" -> "$13", "$137.46" -> "$137"); values under $1 stay exact so a real price
+ * is never shown as "$0". Without `round`, exact to the cent with ".00" dropped.
+ */
+export function formatDisplayPrice(cents, round = true) {
+  const exact = formatCents(cents);
+  if (exact === NA) return NA;
+  if (round && cents >= 100) {
+    const dollars = Math.floor((cents + 50) / 100);
+    return "$" + String(dollars).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  return exact.endsWith(".00") ? exact.slice(0, -3) : exact;
 }
 
 function priceCents(raw, kind) {
@@ -99,9 +112,26 @@ export function idleRecord(title = "") {
 
 export const PLACEHOLDER = "—";
 
+/** The text a price plate shows: idle "—", missing "N/A" (never "$0.00"), else the price. */
+export function plateText(cents, { idle = false, round = true } = {}) {
+  if (idle) return PLACEHOLDER;
+  return formatDisplayPrice(cents, round);
+}
+
+/**
+ * Horizontal fit used by the price strip (from the design package's overlay.js): text keeps
+ * its vertical size and is only narrowed with scaleX, never below `min`, so the frame and
+ * the plates never move or resize. Returns the scaleX factor (1 = fits as is).
+ */
+export function fitScale(width, maxWidth, min = 0.2) {
+  if (!(width > 0) || !(maxWidth > 0) || width <= maxWidth) return 1;
+  return Math.max(min, Math.min(1, maxWidth / width));
+}
+
 export function sameRecord(a, b) {
   if (!a || !b) return false;
   return (
+    a.idle === b.idle &&
     a.productId === b.productId &&
     a.title === b.title &&
     a.platform === b.platform &&
@@ -111,66 +141,6 @@ export function sameRecord(a, b) {
     a.freshness === b.freshness &&
     a.demo === b.demo
   );
-}
-
-/** What visual transition moves the overlay from `current` to `next`. */
-export function planTransition(currentVisible, current, next) {
-  if (!next) return currentVisible ? "exit" : "none";
-  if (!currentVisible || !current) return "enter";
-  if (sameRecord(current, next)) return "refresh"; // same game & prices: update footer only
-  return "swap"; // complete-panel transition: title, console and all prices together
-}
-
-const pad = (n) => String(n).padStart(2, "0");
-
-/** "AS OF 14:32"; other day -> "AS OF NOV 09 14:32"; stale -> "CACHED · AS OF ...". */
-export function formatAsOf(date, now = new Date(), freshness = "fresh") {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  const sameDay =
-    date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
-  const day = sameDay ? "" : `${MONTHS[date.getMonth()]} ${pad(date.getDate())} `;
-  return `${freshness === "stale" ? "CACHED · " : ""}AS OF ${day}${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-export const DESIGN_WIDTH = { portrait: 1000, landscape: 1000 };
-const WIDTH_FRACTION = {
-  portrait: { compact: 0.86, balanced: 0.985, large: 0.995 },
-  landscape: { compact: 0.46, balanced: 0.56, large: 0.66 },
-};
-const MAX_HEIGHT_FRACTION = { portrait: 0.38, landscape: 0.4 };
-
-export function resolveOrientation(vw, vh, mode = "auto") {
-  if (mode === "portrait" || mode === "landscape") return mode;
-  return vw > vh * 1.05 ? "landscape" : "portrait";
-}
-
-/**
- * Where to draw the machine. Returns design->canvas scale and top-left position.
- * `designHeight` is the machine's unscaled height for the resolved orientation.
- */
-export function computeLayout({ vw, vh, size = "balanced", position = "top-center", orientation = "auto", edgeOffset = 0.008, designHeight }) {
-  const o = resolveOrientation(vw, vh, orientation);
-  const dw = DESIGN_WIDTH[o];
-  const frac = (WIDTH_FRACTION[o] || WIDTH_FRACTION.portrait)[size] ?? WIDTH_FRACTION[o].balanced;
-  const side = position.startsWith("side-");
-  let width = vw * frac;
-  if (side) width = Math.min(width, vw * (o === "portrait" ? 0.46 : 0.34));
-  let scale = width / dw;
-  const maxH = vh * MAX_HEIGHT_FRACTION[o] * (side ? 1.4 : 1);
-  if (designHeight && designHeight * scale > maxH) scale = maxH / designHeight;
-  const w = dw * scale;
-  const h = (designHeight || 0) * scale;
-  const marginX = Math.max(vw * 0.0075, 4);
-  const marginY = vh * Math.max(0, edgeOffset);
-  let x;
-  if (position.endsWith("-left")) x = marginX;
-  else if (position.endsWith("-right")) x = vw - w - marginX;
-  else x = (vw - w) / 2;
-  let y;
-  if (position.startsWith("top-")) y = marginY;
-  else if (side) y = (vh - h) / 2;
-  else y = vh - h - marginY;
-  return { orientation: o, scale, x: Math.round(x), y: Math.round(y), width: w, height: h, designWidth: dw };
 }
 
 /** Exponential reconnect delay with jitter (ms). */

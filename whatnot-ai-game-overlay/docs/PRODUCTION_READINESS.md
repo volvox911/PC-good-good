@@ -18,7 +18,7 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 | Recognition | Anthropic SDK `beta.messages.parse` with a Pydantic schema (title, platform from PriceCharting's console vocabulary, region, edition, evidence, confidence, obscured flag, more-images flag), `claude-opus-5-5` at effort `low` (configurable), server-side refusal fallbacks, refusal → "not identified", prompt caching, per-session spend limit + requests/minute cap + cost estimates. |
 | Matching | Console family + region must match; title similarity with significant numbers (sequels, "3D"); edition adjustments; accept score + margin over runner-up + minimum confidence; UPC when legible; match cache; manual corrections override automatic matches. |
 | State machine | Idle / Detecting / Recognizing / Matching / Price lookup / Displaying / Needs confirmation / Error / Paused; generation-based supersession; corroboration before replacing a game; minimum display time; unidentified/empty grace periods; display timeout; hold with "show new game"; rescan. |
-| Overlay | Slim, full-width weathered sign at the top (≈8% of a 9:16 frame): racing stripes, bolts, hand-lettered title with brush underline, three aged-paper price tags; CSS/inline SVG plus two bundled OFL fonts; transparent background; stays on screen between games with prices cleared (configurable); size/position presets; auto-fitting title and prices; `N/A`; optional `AS OF` time and source attribution (both off by default); atomic ~300 ms panel swap; lamp breathing; reduced motion; read-only auto-reconnecting WebSocket; hides after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
+| Overlay | The operator's Joe Dirt price strip (supplied `index.html` / `style.css` / `overlay.js` / text-free `header-skin.png`, used directly): ≈170 px at the top of a 1080×1920 frame, transparent elsewhere; exact font families from the design's font guide (Knewave, Barlow Condensed, Anton) bundled under the OFL; whole-dollar prices (configurable), `N/A`; horizontal-only text fitting so long names and six-figure prices fit; atomic updates with no transition and no frame movement; stays on screen between games with prices cleared (configurable); container-unit fallback for older OBS; read-only auto-reconnecting WebSocket; self-reload once after an app update; hides prices after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
 | Dashboard | Status, current item + evidence + suggestions, controls with keyboard shortcuts, manual search, UPC/barcode scanner, on-air and design previews, history + recall, settings (all thresholds, crop editor, background capture), first-run wizard. |
 | Security | 127.0.0.1-only bind by default, one-time sign-in links (the permanent admin token is only ever POSTed, never put in URLs), signed HttpOnly SameSite=Strict session cookie, CSRF tokens, Host/Origin checks (DNS rebinding; overlay sockets too), strict CSP, public overlay limited to read-only data, admin token redacted from logs. |
 | Reliability | Engine loop never dies (errors are reported), structured JSON logs, graceful shutdown, crash detection on next start, auto-restart wrapper in `Start.cmd`, bounded memory structures, DB pruning. |
@@ -29,8 +29,11 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 
 Run with `Run-Tests.cmd` (Windows) or `.venv/bin/python -m pytest -q && node --test "tests/js/*.test.mjs"`.
 
-- **Python: 190 passed**, 6 skipped — the skips are the 5 opt-in live tests (no credentials here)
-  and the opt-in docs-screenshot export. Includes 12 Playwright browser tests.
+- **Python: 209 passed**, 6 skipped — the skips are the 5 opt-in live tests (no credentials here)
+  and the opt-in docs-screenshot export. Includes 20 Playwright browser tests of the price strip
+  (1080×1920, 720×1280, 1920×1080 and 360 px phone; long names and `$1,245.99` fit; whole-dollar
+  rounding; no frame movement or transition on update; exact fonts; older-OBS unit fallback;
+  self-reload after an app update).
 - **JavaScript: 12 passed** (`node --test`).
 - **Real-time demo soak:** the demo server ran the full pipeline continuously for ~33 minutes
   (fake OBS camera through the real WebSocket client, mock vision, mock PriceCharting through
@@ -94,14 +97,16 @@ without refresh, hide after long disconnect, reduced motion, watermark.
    glare. Note recognition time per game (dashboard *Total*), misidentifications and how often
    *Needs confirmation* appears. Tune thresholds if needed.
 7. Check the vertical stream on an actual phone in the Whatnot app (legibility, and whether
-   Whatnot's own UI covers the panel — adjust position/edge offset).
+   Whatnot's own UI covers the strip — adjust position/edge offset).
 8. Run a 2–3 hour soak with OBS streaming to a private/test destination; watch CPU, memory and
    the spend estimate.
 
 ## 5. Unresolved limitations / risks
 
-- **Visual prototype not received.** `wasteland_price_overlay.html` and its preview PNG were not
-  in the request; the overlay was designed from the written brief. Pixel-matching it requires the file.
+- **Lettering vs. the package's preview PNGs.** The package's `preview-*.png` files were rendered
+  with fallback fonts (DejaVu); the live strip uses the exact families named in its font guide
+  (Knewave, Barlow Condensed, Anton), so the lettering differs slightly from those PNGs while the
+  frame, positions and sizes match.
 - **Real-world recognition accuracy is unmeasured.** Thresholds (motion, stability, fingerprint
   distances, sharpness, accept score/margin) were tuned on synthetic images and need on-site tuning.
 - **Latency target (2–5 s) is unverified.** It depends on Claude response time at effort `low`; the
@@ -111,14 +116,13 @@ without refresh, hide after long disconnect, reduced motion, watermark.
   that look identical to the standard release cannot be told apart from a photo.
 - **UPC lookup** helps only when a barcode is legible (rare on retro carts); a USB scanner works
   via the dashboard.
-- **Fonts:** the overlay prefers Windows fonts (Bahnschrift/Consolas); screenshots in `docs/` were
-  rendered with Linux fallbacks and will look slightly different on Windows.
-- **Attribution:** the on-screen source line is **off by default** at your request. PriceCharting's
-  API terms say they *prefer* attribution when sharing their data under a commercial agreement;
-  if your agreement requires it, enable *Show source attribution* and set the exact wording.
-- **Whatnot's own top UI** (host name, viewer count) may overlap the top band on phones; adjust
-  *Distance from edge* after checking a real stream.
-- **Local time:** `AS OF` uses the streaming PC's clock/time zone.
+- **Very long names** are narrowed horizontally (down to 20% width, the design's limit); a name
+  that still does not fit is shortened with `…` rather than running over the price plates.
+- **Attribution:** the strip has no source line or PriceCharting heading, at your request.
+  PriceCharting's API terms say they *prefer* attribution when sharing their data under a
+  commercial agreement; if your agreement requires on-screen attribution, it would need adding.
+- **Whatnot's own top UI** (host name, viewer count) may overlap the strip on phones; adjust
+  *Extra distance from the edge* after checking a real stream.
 - **No HTTPS** — by design the app only listens on 127.0.0.1.
 - **Docker** is not provided (not needed for normal use).
 

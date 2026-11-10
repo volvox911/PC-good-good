@@ -3,13 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  computeLayout,
-  formatAsOf,
+  fitScale,
   formatCents,
-  planTransition,
-  reconnectDelay,
-  resolveOrientation,
+  formatDisplayPrice,
   idleRecord,
+  plateText,
+  reconnectDelay,
   sameRecord,
   validateRecord,
 } from "../../gameoverlay/web/overlay/overlay-core.js";
@@ -89,74 +88,49 @@ test("zero price is treated as no data", () => {
   assert.equal(r.record.loose, null);
 });
 
-test("planTransition: enter / swap / refresh / exit", () => {
-  const a = validateRecord(good).record;
-  const b = validateRecord({ ...good, productId: "900302", title: "Mortal Kombat" }).record;
-  const a2 = validateRecord({ ...good }).record;
-  assert.equal(planTransition(false, null, a), "enter");
-  assert.equal(planTransition(true, a, b), "swap");
-  assert.equal(planTransition(true, a, a2), "refresh");
-  assert.ok(sameRecord(a, a2));
-  const aRefreshed = validateRecord({ ...good, looseCents: 4999, looseUsd: 49.99 }).record;
-  assert.equal(planTransition(true, a, aRefreshed), "swap", "changed prices animate as a whole panel");
-  assert.equal(planTransition(true, a, null), "exit");
-  assert.equal(planTransition(false, null, null), "none");
+test("formatDisplayPrice: whole dollars by default, half-up, never $0", () => {
+  assert.equal(formatDisplayPrice(1250), "$13");
+  assert.equal(formatDisplayPrice(13746), "$137");
+  assert.equal(formatDisplayPrice(124599), "$1,246");
+  assert.equal(formatDisplayPrice(12345678), "$123,457");
+  assert.equal(formatDisplayPrice(100), "$1");
+  assert.equal(formatDisplayPrice(149), "$1");
+  assert.equal(formatDisplayPrice(150), "$2");
+  assert.equal(formatDisplayPrice(49), "$0.49", "under $1 stays exact, never $0");
+  for (const v of [null, undefined, 0, -5, 1.5]) assert.equal(formatDisplayPrice(v), "N/A");
 });
 
-test("idle panel: game -> idle swaps the whole panel; idle -> idle is a no-op", () => {
+test("formatDisplayPrice: exact cents when rounding is off", () => {
+  assert.equal(formatDisplayPrice(124599, false), "$1,245.99");
+  assert.equal(formatDisplayPrice(59900, false), "$599");
+  assert.equal(formatDisplayPrice(null, false), "N/A");
+});
+
+test("plateText: idle dash, missing N/A, otherwise the price", () => {
+  assert.equal(plateText(4295, { idle: true }), "—");
+  assert.equal(plateText(null), "N/A");
+  assert.equal(plateText(4295), "$43");
+  assert.equal(plateText(4295, { round: false }), "$42.95");
+});
+
+test("fitScale: only narrows, never below the minimum", () => {
+  assert.equal(fitScale(100, 200), 1);
+  assert.equal(fitScale(200, 100), 0.5);
+  assert.equal(fitScale(1000, 100), 0.2);
+  assert.equal(fitScale(0, 100), 1);
+  assert.equal(fitScale(100, 0), 1);
+});
+
+test("sameRecord: identical game and prices; idle differs from a game", () => {
   const a = validateRecord(good).record;
+  assert.ok(sameRecord(a, validateRecord({ ...good }).record));
+  assert.ok(!sameRecord(a, validateRecord({ ...good, looseCents: 4999, looseUsd: 49.99 }).record));
   const idle = idleRecord("Price Guide");
   assert.equal(idle.loose, null);
   assert.equal(idle.productId, "__idle__");
-  assert.equal(planTransition(false, null, idle), "enter");
-  assert.equal(planTransition(true, a, idle), "swap");
-  assert.equal(planTransition(true, idle, a), "swap");
-  assert.equal(planTransition(true, idle, idleRecord("Price Guide")), "refresh");
-  assert.equal(planTransition(true, idle, idleRecord("Next up")), "swap");
-});
-
-test("formatAsOf", () => {
-  const now = new Date(2026, 10, 10, 15, 0);
-  assert.equal(formatAsOf(new Date(2026, 10, 10, 14, 32), now), "AS OF 14:32");
-  assert.equal(formatAsOf(new Date(2026, 10, 9, 9, 5), now), "AS OF NOV 09 09:05");
-  assert.equal(formatAsOf(new Date(2026, 10, 10, 14, 32), now, "stale"), "CACHED · AS OF 14:32");
-  assert.equal(formatAsOf(new Date("bad"), now), "");
-});
-
-test("layout presets: portrait default is a slim, full-width sign at the very top", () => {
-  const L = computeLayout({ vw: 1080, vh: 1920, designHeight: 136 });
-  assert.equal(L.orientation, "portrait");
-  const margin = (1080 - L.width) / 2;
-  assert.ok(margin >= 2 && margin <= 1080 * 0.02, `margin ${margin}`);
-  assert.ok(L.y >= 0 && L.y <= 1920 * 0.02, "flush with the top of the frame");
-  assert.ok(L.y + L.height <= 1920 * 0.1, "slim: stays in the top strip");
-});
-
-test("layout presets: sizes and positions", () => {
-  const c = computeLayout({ vw: 1080, vh: 1920, size: "compact", designHeight: 640 });
-  const l = computeLayout({ vw: 1080, vh: 1920, size: "large", designHeight: 640 });
-  assert.ok(c.width < l.width);
-  const left = computeLayout({ vw: 1080, vh: 1920, size: "compact", position: "bottom-left", designHeight: 136 });
-  const right = computeLayout({ vw: 1080, vh: 1920, size: "compact", position: "bottom-right", designHeight: 136 });
-  assert.ok(left.x < right.x && left.x >= 0 && right.x + right.width <= 1080);
-  const top = computeLayout({ vw: 1080, vh: 1920, position: "top-center", designHeight: 136 });
-  assert.ok(top.y < 200);
-  const bottom = computeLayout({ vw: 1080, vh: 1920, position: "bottom-center", designHeight: 136 });
-  assert.ok(bottom.y > 1920 * 0.8, "bottom presets remain available");
-  const side = computeLayout({ vw: 1080, vh: 1920, position: "side-right", designHeight: 640 });
-  assert.ok(side.width <= 1080 * 0.46 + 1);
-});
-
-test("layout: landscape stays inside the canvas and auto-detects orientation", () => {
-  assert.equal(resolveOrientation(1920, 1080), "landscape");
-  assert.equal(resolveOrientation(1080, 1920), "portrait");
-  assert.equal(resolveOrientation(1920, 1080, "portrait"), "portrait");
-  for (const [vw, vh] of [[1920, 1080], [1280, 720], [1080, 1920], [720, 1280]]) {
-    for (const size of ["compact", "balanced", "large"]) {
-      const L = computeLayout({ vw, vh, size, designHeight: vw > vh ? 480 : 640 });
-      assert.ok(L.x >= 0 && L.y >= 0 && L.x + L.width <= vw + 0.5 && L.y + L.height <= vh + 0.5, `${vw}x${vh} ${size}`);
-    }
-  }
+  assert.ok(sameRecord(idle, idleRecord("Price Guide")));
+  assert.ok(!sameRecord(idle, idleRecord("Next up")));
+  assert.ok(!sameRecord(idle, a));
 });
 
 test("reconnect backoff grows and is capped", () => {

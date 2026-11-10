@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "whatnot-ai-game-overlay"
 version = "1.0.0"
-description = "Automatic retro video game recognition with live PriceCharting values for OBS / Whatnot streams (Wasteland Price-O-Matic overlay)."
+description = "Automatic retro video game recognition with live PriceCharting values for OBS / Whatnot streams."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }

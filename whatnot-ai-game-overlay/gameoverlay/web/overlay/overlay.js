@@ -1,267 +1,163 @@
-// Price guide band · viewer overlay runtime
+// Joe Dirt price strip · live overlay runtime
 //
-// * Connects to the local backend over a read-only WebSocket (/ws/overlay) and
-//   reconnects automatically (no OBS page refresh needed).
-// * Between games the band stays on screen in an idle state (no game title, no
-//   prices) unless the operator turns that off; it never shows sample data. Every
-//   update is a full state snapshot applied as ONE atomic DOM update — the title,
-//   console and the three prices always change together.
-// * Exposes window.setGameOverlayData(record) / window.hideGameOverlay() (design
-//   prototype API). ?preview=1 is a watermarked design preview fed by the
-//   dashboard via postMessage; it never opens the live socket.
+// Rendering and text fitting come from the design package's overlay.js (sanitized text,
+// horizontal-only fit so the frame never moves). The data path is this app's own:
+//
+// * Connects to the local backend over a read-only WebSocket (/ws/overlay) and reconnects
+//   automatically (no OBS page refresh needed). Only verified PriceCharting records are
+//   shown; every update is one full snapshot written in a single synchronous step, so the
+//   title, system and the three prices always change together, with no transition.
+// * Between games the strip stays on screen with the title spot showing the idle text and
+//   the plates showing "—" (unless the operator turns the idle strip off). The page never
+//   contains sample data. ?preview=1 is the dashboard's watermarked design preview, fed by
+//   postMessage; it never opens the live socket.
 
-import {
-  computeLayout,
-  formatAsOf,
-  formatCents,
-  idleRecord,
-  PLACEHOLDER,
-  planTransition,
-  reconnectDelay,
-  resolveOrientation,
-  validateRecord,
-} from "./overlay-core.js";
+import { fitScale, formatCents, idleRecord, KINDS, plateText, reconnectDelay, sameRecord, validateRecord } from "./overlay-core.js";
 
-const $ = (id) => document.getElementById(id);
+const search = new URLSearchParams(location.search);
+const PREVIEW = search.get("preview") === "1";
+if (PREVIEW) document.body.classList.add("preview");
+const PAGE_BUILD = document.querySelector('meta[name="overlay-build"]')?.content || null;
+
 const els = {
-  anchor: $("anchor"),
-  machine: $("machine"),
-  title: $("gameTitle"),
-  console: $("consoleName"),
-  loose: $("priceLoose"),
-  complete: $("priceComplete"),
-  new: $("priceNew"),
-  asOf: $("asOf"),
-  attribution: $("attribution"),
-  metaLine: document.querySelector(".meta-line"),
-  demoMark: $("demoMark"),
+  header: document.getElementById("header"),
+  title: document.getElementById("game-title"),
+  system: document.getElementById("game-system"),
+  loose: document.getElementById("price-loose"),
+  complete: document.getElementById("price-complete"),
+  new: document.getElementById("price-new"),
+  demoMark: document.getElementById("demoMark"),
 };
 
-const params = new URLSearchParams(location.search);
-const PREVIEW = params.get("preview") === "1";
-const SWAP_OUT_MS = 150;
-const SWAP_IN_MS = 180;
-const ENTER_MS = 360;
-const EXIT_MS = 340;
-
 let layout = {
-  size: "balanced",
   position: "top-center",
-  orientation: "auto",
   opacity: 1,
-  fontScale: 1,
-  edgeOffset: 0.008,
-  attribution: "SOURCE: PRICECHARTING",
-  showAttribution: false,
-  showRetrievalTime: false,
+  edgeOffset: 0,
   idlePanel: true,
   idleTitle: "Price Guide",
-  reducedMotion: false,
+  roundWholeDollars: true,
   disconnectHideMs: 120000,
 };
 let demoMode = false;
-let shown = null; // normalized record currently rendered
-let visible = false;
-let busy = false;
-let queued; // latest pending target (undefined = none); intermediate states are dropped
-let orientation = null;
+let shown = null; // record on screen (verified or idle); null = nothing drawn
+let renderedWith = ""; // display options the current text was rendered with
 
-const prefersReduced = () =>
-  layout.reducedMotion || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** What to show when no game is on air: the idle panel, or nothing at all. */
+/** What to show when no game is on air: the idle strip, or nothing at all. */
 const emptyTarget = () => (layout.idlePanel === false ? null : idleRecord(layout.idleTitle ?? "Price Guide"));
 
-// ------------------------------------------------------------------ rendering
-function span(cls, text) {
-  const s = document.createElement("span");
-  s.className = cls;
-  s.textContent = text;
-  return s;
+// ------------------------------------------------------------------ text (design package)
+function text(value, fallback = "") {
+  if (value == null || String(value).trim() === "") return fallback;
+  return String(value).trim().slice(0, 110);
+}
+
+function setText(el, value) {
+  if (el.textContent !== value) el.textContent = value;
+}
+
+/** 1% of the strip's width in px — the design's `cqw` unit, for OBS builds without it. */
+function syncUnits() {
+  const w = els.header.getBoundingClientRect().width;
+  if (w > 0) els.header.style.setProperty("--u", (w / 100).toFixed(4) + "px");
+}
+
+// Fit actual font metrics horizontally without changing the frame or vertical type size.
+function fitProp(span) {
+  if (span.classList.contains("game-title")) return "--title-fit";
+  if (span.classList.contains("game-system")) return "--system-fit";
+  return "--fit";
+}
+
+function fitSpan(span, maxWidth) {
+  const prop = fitProp(span);
+  span.style.setProperty(prop, "1");
+  const width = span.getBoundingClientRect().width;
+  const scale = fitScale(width, maxWidth);
+  if (scale !== 1) span.style.setProperty(prop, scale.toFixed(4));
+  return width * scale <= maxWidth + 0.5;
 }
 
 /**
- * Price-tag style, exact to the cent: "$12.34" -> "$12" + smaller ".34";
- * whole-dollar values drop ".00" ("$12"), which is the same exact value.
+ * Fits a line; if even the narrowest allowed squeeze is too wide (an exceptionally long
+ * name), shortens it with an ellipsis rather than letting it run over the price plates.
  */
-function setPrice(el, cents, idle) {
-  let text = idle ? PLACEHOLDER : formatCents(cents);
-  if (text.endsWith(".00")) text = text.slice(0, -3);
-  const m = /^(\$[\d,]+)(\.\d\d)$/.exec(text);
-  el.replaceChildren(...(m ? [span("p-main", m[1]), span("p-cents", m[2])] : [span("p-main", text)]));
-  el.classList.toggle("na", text === "N/A");
-  el.classList.toggle("placeholder", idle);
+function fitLine(span, maxWidth) {
+  if (fitSpan(span, maxWidth)) return;
+  const full = span.textContent;
+  let lo = 1;
+  let hi = full.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    span.textContent = full.slice(0, mid).trimEnd() + "…";
+    if (fitSpan(span, maxWidth)) lo = mid;
+    else hi = mid - 1;
+  }
+  span.textContent = full.slice(0, lo).trimEnd() + "…";
+  fitSpan(span, maxWidth);
 }
 
-/** Single atomic write of every game field. */
+function adjustText() {
+  syncUnits();
+  fitLine(els.title, els.title.parentElement.clientWidth - 6);
+  fitLine(els.system, els.system.parentElement.clientWidth - 6);
+  for (const key of KINDS) fitSpan(els[key], els[key].parentElement.clientWidth - 4);
+}
+
+let frameRequested = false;
+function scheduleFit() {
+  if (frameRequested) return;
+  frameRequested = true;
+  requestAnimationFrame(() => {
+    frameRequested = false;
+    if (shown) render(shown); // re-fit from the full text (fonts or size changed)
+  });
+}
+
+// ------------------------------------------------------------------ rendering
+/** Single synchronous write of every field, fitted before the browser paints it. */
 function render(rec) {
   const idle = rec.idle === true;
-  els.title.textContent = rec.title;
-  els.console.textContent = idle ? "" : rec.platform;
-  setPrice(els.loose, rec.loose, idle);
-  setPrice(els.complete, rec.complete, idle);
-  setPrice(els.new, rec.new, idle);
-  renderFooter(rec);
-  els.machine.classList.toggle("is-idle", idle);
-  els.machine.classList.toggle("is-stale", !idle && rec.freshness === "stale");
-  els.demoMark.hidden = !(PREVIEW || rec.demo || demoMode);
+  const round = layout.roundWholeDollars !== false;
+  const stale = !idle && rec.freshness === "stale";
+  setText(els.title, text(rec.title));
+  setText(els.system, idle ? "" : text(rec.platform) + (stale ? " · CACHED" : ""));
+  for (const key of KINDS) setText(els[key], plateText(rec[key], { idle, round }));
+  els.demoMark.hidden = !(PREVIEW || demoMode || rec.demo);
   document.body.dataset.content = idle ? "idle" : "record";
-  els.machine.setAttribute(
+  els.header.setAttribute(
     "aria-label",
     idle
       ? "Price guide — waiting for the next game"
       : `${rec.title}, ${rec.platform}. Loose ${formatCents(rec.loose)}, complete ${formatCents(rec.complete)}, new ${formatCents(rec.new)}.`,
   );
-  fitText();
-  position();
+  renderedWith = `${round}|${layout.idleTitle}|${demoMode}`;
+  adjustText();
 }
 
-function renderFooter(rec) {
-  // The retrieval time is optional (off by default). Stale prices — only ever shown when
-  // the operator allows it — are always labeled so they never pass as current.
-  const stale = !rec.idle && rec.freshness === "stale";
-  let text = "";
-  if (!rec.idle && rec.retrievedAt && layout.showRetrievalTime) text = formatAsOf(rec.retrievedAt, new Date(), rec.freshness);
-  else if (stale) text = "CACHED";
-  els.asOf.textContent = text;
-  els.asOf.classList.toggle("stale", stale);
-  els.metaLine.hidden = !text && els.attribution.hidden;
-}
-
-function clearText() {
-  for (const el of [els.title, els.console, els.loose, els.complete, els.new, els.asOf]) el.textContent = "";
-}
-
-function fitText() {
-  const fs = Number(layout.fontScale) || 1;
-  // Title: up to 2 lines at full size, shrinking gracefully, then 3 lines (clamped).
-  // Title: one line at full size if possible (shrinking a little), otherwise two
-  // balanced lines at a smaller size — the sign never grows taller.
-  const t = els.title;
-  t.classList.remove("wrap");
-  let size = 62 * fs;
-  t.style.fontSize = size + "px";
-  while (t.scrollWidth > t.clientWidth + 1 && size > 40) {
-    size -= 2;
-    t.style.fontSize = size + "px";
+function apply(next) {
+  if (!next) {
+    shown = null;
+    document.body.dataset.overlay = "hidden";
+    document.body.dataset.content = "none";
+    for (const el of [els.title, els.system, els.loose, els.complete, els.new]) setText(el, ""); // no stale game data left in the DOM
+    return;
   }
-  if (t.scrollWidth > t.clientWidth + 1) {
-    t.classList.add("wrap");
-    size = 38 * fs;
-    t.style.fontSize = size + "px";
-    const lines = (n, s) => n * s * 1.14 + s * 0.1 + 2;
-    while (t.scrollHeight > lines(2, size) && size > 20) {
-      size -= 1;
-      t.style.fontSize = size + "px";
-    }
-  }
-  // Prices: each as large as its tag allows (a six-figure value shrinks only itself).
-  const base = 54;
-  for (const el of [els.loose, els.complete, els.new]) {
-    el.style.fontSize = (el.classList.contains("na") ? 40 : base) * fs + "px";
-    if (el.classList.contains("na")) continue;
-    const avail = el.parentElement.clientWidth - 16; // breathing room inside the tag
-    const need = el.scrollWidth;
-    let eff = base * fs;
-    if (need > avail && need > 0) eff = (base * fs * avail) / need;
-    el.style.fontSize = Math.max(22, Math.floor(eff)) + "px";
-  }
+  const options = `${layout.roundWholeDollars !== false}|${layout.idleTitle}|${demoMode}`;
+  if (!(shown && sameRecord(shown, next) && options === renderedWith)) render(next);
+  shown = next;
+  document.body.dataset.overlay = "visible";
 }
 
 function applyLayoutSettings() {
-  document.documentElement.style.setProperty("--font-scale", String(Number(layout.fontScale) || 1));
-  els.machine.style.setProperty("--panel-opacity", String(Number(layout.opacity) || 1));
-  // Source attribution is off by default (operator choice); the retrieval time stays on.
-  els.attribution.textContent = layout.attribution || "";
-  els.attribution.hidden = !(layout.showAttribution && layout.attribution);
-  document.documentElement.classList.toggle("reduced-motion", !!layout.reducedMotion);
-  const o = resolveOrientation(window.innerWidth, window.innerHeight, layout.orientation);
-  if (o !== orientation) {
-    orientation = o;
-    els.machine.classList.toggle("layout-landscape", o === "landscape");
-    els.machine.classList.toggle("layout-portrait", o === "portrait");
-    if (shown) fitText();
-  }
-  position();
+  const pos = String(layout.position || "top-center");
+  els.header.classList.toggle("at-bottom", pos.startsWith("bottom-"));
+  const offset = Math.max(0, Math.min(0.3, Number(layout.edgeOffset) || 0));
+  els.header.style.setProperty("--edge-extra", (offset * window.innerHeight).toFixed(1) + "px");
+  const opacity = Number(layout.opacity);
+  els.header.style.setProperty("--strip-opacity", String(opacity >= 0.3 && opacity <= 1 ? opacity : 1));
 }
 
-function position() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const L = computeLayout({
-    vw,
-    vh,
-    size: layout.size,
-    position: layout.position,
-    orientation: layout.orientation,
-    edgeOffset: layout.edgeOffset,
-    designHeight: els.machine.offsetHeight,
-  });
-  els.anchor.style.transform = `translate(${L.x}px, ${L.y}px) scale(${L.scale})`;
-  els.anchor.dataset.orientation = L.orientation;
-  const pos = layout.position || "top-center";
-  els.anchor.dataset.edge = pos.startsWith("bottom-") ? "bottom" : pos.startsWith("side-") ? "side" : "top";
-}
-
-function setVisible(on) {
-  visible = on;
-  els.machine.dataset.state = on ? "visible" : "hidden";
-  document.body.dataset.overlay = on ? "visible" : "hidden";
-}
-
-// ------------------------------------------------------------------ transitions
-async function apply(next) {
-  if (busy) {
-    queued = next; // only the latest target matters
-    return;
-  }
-  busy = true;
-  try {
-    const plan = planTransition(visible, shown, next);
-    const reduced = prefersReduced();
-    if (plan === "enter") {
-      render(next);
-      shown = next;
-      void els.machine.offsetWidth; // commit start state so the entry transition runs
-      setVisible(true);
-      if (!reduced) await wait(ENTER_MS);
-    } else if (plan === "exit") {
-      setVisible(false);
-      shown = null;
-      document.body.dataset.content = "none";
-      if (!reduced) await wait(EXIT_MS);
-      if (!visible) clearText(); // no stale game data left in the DOM
-    } else if (plan === "swap") {
-      if (reduced) {
-        render(next);
-        shown = next;
-      } else {
-        els.machine.classList.add("swap-out");
-        await wait(SWAP_OUT_MS);
-        render(next); // all fields change in the same frame, while hidden
-        shown = next;
-        els.machine.classList.remove("swap-out");
-        els.machine.classList.add("swap-in");
-        await wait(SWAP_IN_MS);
-        els.machine.classList.remove("swap-in");
-      }
-    } else if (plan === "refresh") {
-      shown = next;
-      renderFooter(next);
-    }
-  } finally {
-    busy = false;
-    document.body.dataset.settled = queued === undefined ? "1" : "0";
-    if (queued !== undefined) {
-      const q = queued;
-      queued = undefined;
-      apply(q);
-    }
-  }
-}
-
-// ------------------------------------------------------------------ public API (prototype contract)
+// ------------------------------------------------------------------ public API
 window.setGameOverlayData = (record) => {
   const v = validateRecord(record, { allowMissingTime: PREVIEW });
   if (!v.ok) {
@@ -272,9 +168,54 @@ window.setGameOverlayData = (record) => {
   return true;
 };
 window.hideGameOverlay = () => apply(emptyTarget());
-window.__overlayState = () => ({ visible, shown, busy, demoMode, preview: PREVIEW, layout, orientation });
+window.__overlayState = () => ({
+  visible: document.body.dataset.overlay === "visible",
+  shown,
+  demoMode,
+  preview: PREVIEW,
+  layout,
+  build: PAGE_BUILD,
+});
+
+/** Design package API ({title, system, prices: {loose, complete, new}} in dollars) — preview only. */
+function previewUpdate(data) {
+  if (!data || typeof data !== "object") return false;
+  const prices = data.prices && typeof data.prices === "object" ? data.prices : data;
+  const usd = (v) => {
+    if (v == null || v === "") return null;
+    const n = Number(String(v).replace(/[$,\s]/g, ""));
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+  return window.setGameOverlayData({
+    title: data.title ?? data.game,
+    platform: data.system ?? data.platform,
+    productId: "0",
+    verified: true,
+    demo: true,
+    looseUsd: usd(prices.loose),
+    completeUsd: usd(prices.complete),
+    newUsd: usd(prices.new),
+  });
+}
 
 // ------------------------------------------------------------------ live connection
+/**
+ * OBS keeps an open Browser Source page running even after the app is updated, so the
+ * page would keep the old look while still receiving live data. When the backend reports a
+ * newer overlay build, reload once to pick it up (guarded so it can never loop).
+ */
+function reloadIfOutdated(serverBuild) {
+  if (!serverBuild || !PAGE_BUILD || serverBuild === PAGE_BUILD || PREVIEW) return false;
+  try {
+    if (sessionStorage.getItem("overlayReloadedFor") === serverBuild) return false;
+    sessionStorage.setItem("overlayReloadedFor", serverBuild);
+  } catch {
+    return false; // without storage we can't guarantee a single reload — keep running
+  }
+  location.reload();
+  return true;
+}
+
 let ws = null;
 let attempt = 0;
 let lastMsgAt = 0;
@@ -284,11 +225,12 @@ let lastStateSeq = null;
 let seqMismatch = 0;
 
 function onState(msg) {
+  if (reloadIfOutdated(msg.build)) return;
   if (msg.layout && typeof msg.layout === "object") layout = { ...layout, ...msg.layout };
   demoMode = msg.demoMode === true;
   applyLayoutSettings();
   if (!msg.visible || !msg.record) {
-    apply(emptyTarget()); // game left: clear to the idle panel (or hide, if configured)
+    apply(emptyTarget()); // game left: clear to the idle strip (or hide, if configured)
     return;
   }
   const v = validateRecord(msg.record);
@@ -359,32 +301,44 @@ function watchdog() {
       ws.close(); // heartbeat missed — force a reconnect
     } catch {}
   }
-  // Freshness/hide policy during long outages: never leave possibly-outdated data up forever.
-  if (disconnectedAt !== null && visible && shown && !shown.idle && now - disconnectedAt > (layout.disconnectHideMs || 120000)) {
+  // Never leave possibly-outdated prices up forever during a long outage.
+  if (disconnectedAt !== null && shown && !shown.idle && now - disconnectedAt > (layout.disconnectHideMs || 120000)) {
     apply(emptyTarget());
   }
-  // Keep the "AS OF" line correct across midnight etc.
-  if (shown && visible && !busy) renderFooter(shown);
 }
 
 // ------------------------------------------------------------------ boot
-window.addEventListener("resize", () => {
-  applyLayoutSettings();
-});
-setVisible(false);
+syncUnits();
 applyLayoutSettings();
+window.addEventListener(
+  "resize",
+  () => {
+    applyLayoutSettings();
+    scheduleFit();
+  },
+  { passive: true },
+);
+if (window.ResizeObserver) new ResizeObserver(scheduleFit).observe(els.header);
+if (document.fonts) {
+  document.fonts.ready.then(scheduleFit).catch(() => {});
+  document.fonts.addEventListener?.("loadingdone", scheduleFit);
+}
 
 if (PREVIEW) {
-  document.documentElement.classList.add("is-preview");
+  apply(emptyTarget());
+  window.updateOverlay = previewUpdate;
   window.addEventListener("message", (e) => {
     if (e.origin !== location.origin || !e.data || typeof e.data !== "object") return;
     if (e.data.type === "preview-layout" && e.data.layout) {
       layout = { ...layout, ...e.data.layout };
       applyLayoutSettings();
+      if (shown) render(shown);
     } else if (e.data.type === "preview" && e.data.record) {
       if (e.data.layout) layout = { ...layout, ...e.data.layout };
       applyLayoutSettings();
       window.setGameOverlayData({ ...e.data.record, demo: true });
+    } else if (e.data.type === "OVERLAY_UPDATE") {
+      previewUpdate(e.data.payload);
     } else if (e.data.type === "preview-hide") {
       apply(emptyTarget());
     }

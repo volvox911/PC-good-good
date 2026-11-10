@@ -35,14 +35,32 @@ class DemoDataRejected(Exception):
     pass
 
 
+def overlay_build() -> str:
+    """Short fingerprint of the overlay's files (changes whenever the overlay is updated)."""
+    import hashlib
+    from importlib import resources
+
+    h = hashlib.sha256()
+    root = resources.files("gameoverlay").joinpath("web", "overlay")
+    for entry in sorted(root.iterdir(), key=lambda e: e.name):
+        if entry.is_file() and entry.name.endswith((".html", ".css", ".js", ".png", ".ttf")):
+            h.update(entry.name.encode())
+            h.update(entry.read_bytes())
+    return h.hexdigest()[:12]
+
+
 class OverlayHub:
     def __init__(
         self,
         demo_mode: bool,
         overlay_settings: Callable[[], OverlaySettings],
         display_settings: Callable[[], DisplaySettings],
+        build: str | None = None,
     ) -> None:
         self.demo_mode = demo_mode
+        # Identifies the overlay page version. OBS keeps an already-open Browser Source page
+        # running across app updates; pages from an older build reload themselves.
+        self.build = build or overlay_build()
         self._overlay_settings = overlay_settings
         self._display_settings = display_settings
         self.current: VerifiedRecord | None = None
@@ -134,6 +152,7 @@ class OverlayHub:
             "showAttribution": o.show_attribution,
             "showRetrievalTime": o.show_retrieval_time,
             "idlePanel": o.idle_panel,
+            "roundWholeDollars": o.round_whole_dollars,
             "idleTitle": o.idle_title,
             "showProductLink": o.show_product_link,
             "reducedMotion": o.reduced_motion,
@@ -149,6 +168,7 @@ class OverlayHub:
             "record": rec,
             "layout": self.layout(),
             "demoMode": self.demo_mode,
+            "build": self.build,
             "serverTime": time.time(),
         }
 

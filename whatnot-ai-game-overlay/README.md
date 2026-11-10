@@ -3,13 +3,13 @@
 Hold a retro video game up to your Sony ZV-1 during a Whatnot auction. The app identifies the
 game and its console with Claude Vision, validates the match against the PriceCharting catalog,
 fetches the current **Loose / Complete / New** market values from the official PriceCharting API,
-and shows them on your stream in an animated OBS overlay — automatically, game after game.
+and shows them on your stream in a slim price strip across the top — automatically, game after game.
 
 ![Overlay at 1080×1920](docs/screenshots/standard_1080x1920.png)
 
-| Between games | Long title | Six-figure prices | Missing value (`N/A`) | 16:9 layout |
-|---|---|---|---|---|
-| ![](docs/screenshots/idle_1080x1920.png) | ![](docs/screenshots/long-title_1080x1920.png) | ![](docs/screenshots/six-figure_1080x1920.png) | ![](docs/screenshots/missing-na_720x1280.png) | ![](docs/screenshots/standard_1920x1080.png) |
+| Between games | Long title | Six-figure prices | Missing value (`N/A`) | 360px phone | 16:9 layout |
+|---|---|---|---|---|---|
+| ![](docs/screenshots/idle_1080x1920.png) | ![](docs/screenshots/long-title_1080x1920.png) | ![](docs/screenshots/six-figure_1080x1920.png) | ![](docs/screenshots/missing-na_720x1280.png) | ![](docs/screenshots/standard_360x640.png) | ![](docs/screenshots/standard_1920x1080.png) |
 
 *(Screenshots are rendered by the automated browser tests with mock PriceCharting data; the
 background is transparent in OBS. The fonts are bundled with the app, so OBS on Windows renders
@@ -48,30 +48,32 @@ readable game to prices on screen (depends on Claude latency; not yet measured l
 
 ## What viewers see
 
-A **slim, full-width sign across the very top of the stream** (about 8% of a vertical frame):
-weathered dark-metal plate with a bronze rim and corner bolts, red/white/blue racing stripes,
-the game title in cream hand-lettering with a red brush underline and the console below it,
-and three aged-paper price tags — **LOOSE**, **COMPLETE** and a red-headed **NEW**.
+The operator's **Joe Dirt / red-white-blue price strip**, about 170 px tall across the very top
+of a 1080×1920 stream; everything below it stays transparent for the camera. The frame is the
+supplied text-free artwork (`gameoverlay/web/overlay/header-skin.png`, used unchanged): rusted
+metal, faded red/white/blue slash, bolts and three cream plates. The game title, console and
+prices are live text on top of it.
 
-- Only the sign is opaque; everything else is transparent.
-- **The sign stays on screen between games.** When a game leaves, the title and prices clear
-  (`PRICE GUIDE` with dashes) instead of the sign disappearing. Untick *Keep the panel on screen
-  between games* in Settings → Display & Overlay to hide it completely instead.
-- Long titles shrink, then wrap to two lines — the sign never grows taller.
-- **Exactly three prices** — 100% of the PriceCharting values, never adjusted or rounded.
-  Whole-dollar values show as `$28`; values with cents show the cents smaller, price-tag style
-  (`$42.50`). Missing values show **N/A**, never `$0.00`. Each tag auto-fits its price.
-- No time or source line by default. *Show “AS OF” retrieval time* and *Show source attribution*
-  are available in Settings → Display & Overlay (turn attribution on if your PriceCharting
-  commercial agreement requires it). Stale data — only shown if you allow it — is always labeled
-  `CACHED`.
-- Game changes animate as one ~300 ms swap; the title and all prices change in the same frame.
-  `prefers-reduced-motion` (or the *Reduce motion* setting) disables animation.
-- Presets: **compact / balanced / large**, positions **top** (default), bottom and side,
-  opacity, font scale and distance from the edge. The same single-row sign is used for 9:16
-  and 16:9 canvases.
-- Decoration is CSS/inline SVG; the two fonts (Caveat Brush, Oswald — SIL Open Font License,
-  licenses in `gameoverlay/web/overlay/`) are bundled, so nothing is loaded from the internet.
+- **Exactly three prices** — LOOSE, COMPLETE and NEW from PriceCharting, rounded to whole
+  dollars on the overlay (`$42.50` → `$43`, half-up; values under $1 stay exact so a real price
+  is never shown as `$0`). Missing values show **N/A**, never `$0.00`. Untick *Round prices to
+  whole dollars* in Settings → Display & Overlay for exact cents; the dashboard and history
+  always keep exact cents.
+- **Updates never flash or move the frame.** The title, console and all three prices are
+  written in one step, already fitted, with no transition. Long names and big prices are
+  narrowed horizontally to fit their frame or plate (the design's own fitting method), so
+  `THE LEGEND OF ZELDA: MAJORA'S MASK` and `$1,245.99` / `$123,457` fit without clipping.
+- **The strip stays on screen between games.** When a game leaves, the title spot shows
+  `PRICE GUIDE` and the plates show dashes. Untick *Keep the strip on screen between games* to
+  hide it completely instead.
+- No time, source line or PriceCharting heading. Stale data — only shown if you allow it — is
+  labeled `CACHED` next to the console name.
+- Settings → Display & Overlay: position **top** (default) or bottom, extra distance from the
+  edge (if Whatnot's buttons cover it), opacity, the text shown between games, rounding.
+- Fonts are the exact families from the design's font guide — **Knewave** (title),
+  **Barlow Condensed** 900 italic (console) and 800 (labels), **Anton** (prices) — bundled under
+  the SIL Open Font License (licenses in `gameoverlay/web/overlay/`), so nothing is loaded from
+  the internet. Older OBS versions without CSS container units get an equivalent fallback.
 
 ## How recognition stays accurate
 
@@ -164,10 +166,11 @@ Linux/macOS (development only): `python3 -m venv .venv && .venv/bin/pip install 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — components, state machine, safety invariants
 - [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — audit: implemented, tested, verified, remaining
 
-## Design source note
+## Design source
 
-The brief referenced a visual prototype file `wasteland_price_overlay.html` and a preview PNG.
-Those files were **not included** with the request (only the written design brief was), so the
-overlay was built directly from that brief. If you send the prototype, the CSS in
-`gameoverlay/web/overlay/overlay.css` can be aligned to it closely; the data contract
-(`window.setGameOverlayData(record)`) is already compatible.
+The overlay is the operator's own package (`joe_dirt_whatnot_obs_overlay.zip`): its
+`index.html`, `style.css`, `overlay.js` and `assets/header-skin.png` are used directly in
+`gameoverlay/web/overlay/`. Integration changes only: fonts served locally instead of the Google
+Fonts CDN, the data comes from this app's read-only `/ws/overlay` channel (no demo values in the
+page), whole-dollar rounding, an idle state between games, a demo watermark in demo mode and
+the dashboard preview, and a container-unit fallback for older OBS builds.

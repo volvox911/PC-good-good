@@ -1,65 +1,55 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,">
-  <title>Price Guide Overlay</title>
-  <link rel="preload" href="/overlay/static/caveat-brush.ttf" as="font" type="font/ttf" crossorigin>
-  <link rel="preload" href="/overlay/static/oswald.ttf" as="font" type="font/ttf" crossorigin>
-  <link rel="stylesheet" href="/overlay/static/overlay.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" href="data:," />
+  <title>Joe Dirt / Whatnot — Live Price Overlay</title>
+  <!-- Exact families from FONTS_AND_LICENSES.md (Knewave, Barlow Condensed, Anton), bundled
+       locally under the SIL Open Font License instead of the Google Fonts CDN. -->
+  <link rel="preload" href="/overlay/static/knewave.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="/overlay/static/anton.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="/overlay/static/barlow-condensed-800.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="/overlay/static/barlow-condensed-900-italic.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="stylesheet" href="/overlay/static/style.css" />
   <script type="module" src="/overlay/static/overlay.js"></script>
 </head>
-<body>
+<body data-overlay="hidden">
   <!--
-    Viewer-facing OBS Browser Source: a slim, weathered price sign across the top.
-    Transparent everywhere except the sign. Between games the sign stays on screen with
-    its prices cleared (unless the operator turns that off). Contains no sample prices;
-    demo/preview data is always watermarked. Fonts are bundled (SIL OFL) — no CDN.
+    OBS: Browser Source 1080x1920; transparent background.
+    Data arrives from this app's read-only local WebSocket (/ws/overlay): only verified
+    PriceCharting records, as one atomic update. The page ships with no game or price.
+    The ONLY baked visual element is the distressed metal frame / unlettered plates.
+    All letters and prices below are live DOM text.
   -->
-  <div id="anchor" class="anchor" aria-live="polite">
-    <div id="machine" class="machine" data-state="hidden" role="img" aria-label="Game price guide">
-      <div class="panel">
-        <div class="stripes" aria-hidden="true"><i></i><i></i><i></i></div>
-        <i class="bolt tl" aria-hidden="true"></i><i class="bolt bl" aria-hidden="true"></i>
-        <i class="bolt tr" aria-hidden="true"></i><i class="bolt br" aria-hidden="true"></i>
+  <main class="broadcast" id="broadcast" aria-label="Game price reference overlay">
+    <section class="header" id="header" aria-live="polite" aria-atomic="true" aria-label="Current game and reference prices">
+      <img class="frame-skin" src="/overlay/static/header-skin.png" alt="" draggable="false" aria-hidden="true" />
 
-        <div class="identity">
-          <div class="swap title-swap">
-            <div class="title-wrap">
-              <h1 class="game-title" id="gameTitle"></h1>
-              <svg class="swoosh" viewBox="0 0 400 24" preserveAspectRatio="none" aria-hidden="true">
-                <path d="M2 13 C 60 5, 180 1, 398 3 C 396 7, 392 9, 380 10 C 300 12, 190 15, 70 20 C 40 22, 14 23, 5 22 C 1 20, 0 16, 2 13 Z"/>
-              </svg>
-            </div>
-            <div class="console-name" id="consoleName"></div>
-            <div class="meta-line"><span class="attribution" id="attribution" hidden></span><span class="asof" id="asOf"></span></div>
-          </div>
-        </div>
-
-        <div class="divider" aria-hidden="true"></div>
-
-        <div class="readouts">
-          <div class="price-cell tag" data-kind="loose">
-            <div class="tag-header"><span class="price-label">Loose</span></div>
-            <div class="tag-body"><div class="swap"><span class="price" id="priceLoose"></span></div></div>
-          </div>
-          <div class="price-cell tag" data-kind="complete">
-            <div class="tag-header"><span class="price-label">Complete</span></div>
-            <div class="tag-body"><div class="swap"><span class="price" id="priceComplete"></span></div></div>
-          </div>
-          <div class="price-cell tag" data-kind="new">
-            <div class="tag-header"><span class="price-label">New</span></div>
-            <div class="tag-body"><div class="swap"><span class="price" id="priceNew"></span></div></div>
-          </div>
-        </div>
+      <div class="title-area">
+        <div class="title-frame"><span id="game-title" class="game-title"></span></div>
+        <svg class="flourish" viewBox="0 0 300 14" preserveAspectRatio="none" aria-hidden="true"><path d="M2 9 C65 -1 180 0 293 8 C215 5 113 6 7 12 Z" fill="#ca1015" /><path d="M16 12 C65 7 176 5 276 8" stroke="#ef3630" stroke-width="1" fill="none" opacity=".5" /></svg>
+        <div class="system-frame"><span id="game-system" class="game-system"></span></div>
       </div>
 
-      <div class="demo-watermark" id="demoMark" hidden>
-        <span class="demo-big">DEMO DATA</span>
-        <span class="demo-small">DEMO · SAMPLE VALUES · NOT LIVE PRICES</span>
+      <div class="value-plate loose-plate">
+        <span class="plate-label">LOOSE</span>
+        <div class="plate-price"><span id="price-loose" class="price-text"></span></div>
       </div>
-    </div>
-  </div>
+      <div class="value-plate complete-plate">
+        <span class="plate-label">COMPLETE</span>
+        <div class="plate-price"><span id="price-complete" class="price-text"></span></div>
+      </div>
+      <div class="value-plate new-plate">
+        <span class="plate-label">NEW</span>
+        <div class="plate-price"><span id="price-new" class="price-text"></span></div>
+      </div>
+
+      <!-- Only in demo mode / dashboard design preview: sample values are never shown unmarked. -->
+      <div class="demo-mark" id="demoMark" hidden>DEMO · SAMPLE VALUES · NOT LIVE PRICES</div>
+    </section>
+
+  </main>
 </body>
 </html>

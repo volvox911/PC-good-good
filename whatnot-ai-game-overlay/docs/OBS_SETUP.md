@@ -44,7 +44,7 @@ Dashboard → **Settings → OBS & Camera** (or wizard step 3):
 
 1. Check your canvas: OBS → **Settings → Video → Base (Canvas) Resolution**
    (Whatnot vertical: **1080 × 1920**).
-2. In your Whatnot scene: **Sources → + → Browser**, name it `Price-O-Matic`.
+2. In your Whatnot scene: **Sources → + → Browser**, name it `Price strip`.
 3. Properties:
    - **URL:** `http://127.0.0.1:8765/overlay`
    - **Width / Height:** your canvas size, e.g. **1080 / 1920** (horizontal: 1920 / 1080)
@@ -55,11 +55,12 @@ Dashboard → **Settings → OBS & Camera** (or wizard step 3):
    - Leave *Local file* unticked.
 4. Make sure the Browser Source is **above** the camera in the source list.
 5. Right-click it → **Transform → Reset Transform** so it covers the full canvas exactly. Do
-   **not** crop or resize it in OBS — size and position are set in the dashboard
-   (compact/balanced/large; bottom-left/center/right, top, side).
+   **not** crop or resize it in OBS — the strip sizes itself to the canvas width; top/bottom and
+   the distance from the edge are set in the dashboard (Settings → Display & Overlay).
 6. The dashboard top bar shows `Overlay … · 1 src` when OBS is connected to the overlay.
 
-The overlay is completely transparent until a verified game is recognized. To check placement
+Only the slim strip at the top is drawn (about 170 px on a 1080 × 1920 canvas); the rest is
+transparent. Between games it shows `PRICE GUIDE` with dashes on the plates. To check placement
 before going live, use the dashboard's **Overlay preview → Design samples** (watermarked) or
 run `Start-Demo.cmd` and temporarily point a *test* Browser Source at
 `http://127.0.0.1:8766/overlay` (demo port) — remove it before your show.
@@ -75,16 +76,19 @@ refresh.
 ## 5. Whatnot considerations
 
 - Whatnot's app draws its own UI (host name, viewer count, chat, bid button, timer) over parts
-  of the vertical video. The default sign sits flush at the top and keeps the product area and
-  the bottom (chat/bid area) clear. Check it on a phone in the Whatnot app: if the host name /
-  viewer count covers the sign, increase *Distance from edge* (Settings → Display & Overlay)
-  until it sits just below them.
-- The sign stays on screen between games with its prices cleared. To hide it entirely when no
-  game is shown, untick *Keep the panel on screen between games*.
+  of the vertical video. The strip sits at the very top and keeps the product area and the
+  bottom (chat/bid area) clear. Check it on a phone in the Whatnot app: if the host name /
+  viewer count covers the strip, increase *Extra distance from the edge* (Settings → Display &
+  Overlay, e.g. 0.03) until it sits just below them.
+- The strip stays on screen between games with its prices cleared. To hide it entirely when no
+  game is shown, untick *Keep the strip on screen between games*.
 - If you ever restart the app during a show, OBS does not need a refresh — the overlay
-  reconnects automatically and shows the cleared sign until the next verified record.
+  reconnects automatically and shows the cleared strip until the next verified record.
+- After you **update the app**, an open OBS page notices the new version and reloads itself
+  once. If OBS still shows an older look (versions before this feature), right-click the
+  Browser Source → **Properties → Refresh cache of current page** one time.
 
 ## 6. Horizontal (16:9) streams
 
-Set the Browser Source to 1920 × 1080 (or your canvas). The overlay switches to its wide layout
-automatically (or force *Layout* in Settings → Display & Overlay).
+Set the Browser Source to 1920 × 1080 (or your canvas). The strip is centered at the top and
+capped at 1200 px wide, so it stays the same proportions as on vertical streams.

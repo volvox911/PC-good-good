@@ -56,7 +56,8 @@ def test_invalid_settings_rejected():
 
 def test_defaults_match_design_brief():
     s = RuntimeSettings()
-    assert s.overlay.size == "balanced" and s.overlay.position == "top-center"
+    assert s.overlay.position == "top-center" and s.overlay.edge_offset == 0.0
+    assert s.overlay.round_whole_dollars is True
     assert s.overlay.show_attribution is False and s.overlay.show_retrieval_time is False
     assert s.overlay.idle_panel is True
     assert s.pricing.price_refresh_s == 3600
@@ -76,6 +77,24 @@ def test_settings_migration_turns_off_retrieval_time():
     # current-version settings keep the operator's own choice
     m["overlay"]["show_retrieval_time"] = True
     assert migrate_settings(m)["overlay"]["show_retrieval_time"] is True
+
+
+def test_settings_migration_moves_strip_to_its_designed_place():
+    from gameoverlay.config import migrate_settings
+
+    v2 = RuntimeSettings().model_dump()
+    v2["settings_version"] = 2
+    v2["overlay"].update(edge_offset=0.008, position="side-left")
+    m = migrate_settings(v2)
+    assert m["overlay"]["edge_offset"] == 0.0 and m["overlay"]["position"] == "top-center"
+    v2["overlay"].update(edge_offset=0.05, position="bottom-right")
+    m = migrate_settings(v2)
+    assert m["overlay"]["edge_offset"] == 0.05, "an operator's own offset is kept"
+    assert m["overlay"]["position"] == "bottom-center"
+    v1 = RuntimeSettings().model_dump()
+    v1.pop("settings_version")
+    v1["overlay"]["edge_offset"] = 0.035
+    assert migrate_settings(v1)["overlay"]["edge_offset"] == 0.0
 
 
 def test_refuses_non_loopback_by_default(monkeypatch):
@@ -133,6 +152,33 @@ def test_existing_install_settings_are_migrated_on_start(tmp_path):
     try:
         assert svc.settings.overlay.show_retrieval_time is False
         assert svc.settings.overlay.size == "large", "other operator choices are preserved"
-        assert svc.db.get_setting("runtime")["settings_version"] == 2
+        from gameoverlay.config import SETTINGS_VERSION
+
+        assert svc.db.get_setting("runtime")["settings_version"] == SETTINGS_VERSION
     finally:
         svc.db.close()
+
+
+async def test_clean_shutdown_recorded_even_if_teardown_hangs(tmp_path):
+    """Windows gives a closing console only seconds: the clean-exit mark must come first."""
+    import asyncio
+
+    from gameoverlay.config import AppConfig, Environment
+    from gameoverlay.services import Services
+
+    cfg = AppConfig(env=Environment.TEST, data_dir=tmp_path, port=8765)
+    svc = Services(cfg)
+
+    async def hang():
+        await asyncio.sleep(3600)
+
+    svc.engine.stop = hang
+    task = asyncio.create_task(svc.stop())
+    await asyncio.sleep(0.2)
+    row = svc.db.query_one("SELECT clean_shutdown FROM sessions WHERE id=?", (svc.session_id,))
+    assert row["clean_shutdown"] == 1, "marked clean before the slow teardown steps"
+    task.cancel()
+    try:
+        await task
+    except BaseException:
+        pass
