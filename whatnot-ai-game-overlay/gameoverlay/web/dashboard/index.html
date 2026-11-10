@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Price-O-Matic Operator</title>
+  <link rel="stylesheet" href="/dashboard/static/dashboard.css">
+  <script type="module" src="/dashboard/static/dashboard.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-lamp"></span>
+      <div><strong>Price-O-Matic</strong><small>Operator dashboard · private</small></div>
+      <span id="modeBadge" class="badge">…</span>
+    </div>
+    <nav class="pills" id="pills" aria-label="System status"></nav>
+    <div class="topbar-actions">
+      <button class="ghost" id="btnSettings" title="Settings">⚙ Settings</button>
+      <button class="ghost" id="btnWizard" title="Setup wizard">Setup</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main class="grid">
+    <!-- current item -->
+    <section class="card current" aria-labelledby="hCurrent">
+      <div class="card-head">
+        <h2 id="hCurrent">Current item</h2>
+        <span id="stateChip" class="chip">idle</span>
+      </div>
+      <p id="statusText" class="status-text">Waiting for a game</p>
+      <div class="current-body">
+        <figure class="frame">
+          <img id="frameImg" alt="Last captured camera still" hidden>
+          <figcaption id="frameCaption">No capture yet</figcaption>
+        </figure>
+        <div class="facts">
+          <dl class="kv" id="recognition"></dl>
+          <div class="matched" id="matched"></div>
+          <p class="prices-caption" id="pricesCaption"></p>
+          <div class="prices" id="prices">
+            <div><span>Loose</span><b id="pLoose">—</b></div>
+            <div><span>Complete</span><b id="pComplete">—</b></div>
+            <div><span>New</span><b id="pNew">—</b></div>
+          </div>
+          <p class="freshness" id="freshness"></p>
+        </div>
+      </div>
+      <div class="suggestions" id="suggestionsWrap" hidden>
+        <h3>Choose the correct product <small>(keys 1–9)</small></h3>
+        <ol id="suggestions"></ol>
+      </div>
+      <details class="evidence"><summary>Recognition details</summary><pre id="evidence"></pre></details>
+    </section>
+
+    <!-- controls -->
+    <section class="card controls" aria-labelledby="hControls">
+      <div class="card-head"><h2 id="hControls">Controls</h2><span class="hint">keys in [brackets]</span></div>
+      <div class="buttons">
+        <button id="btnPause" class="big">Pause detection <kbd>P</kbd></button>
+        <button id="btnScan" class="big">Scan now <kbd>S</kbd></button>
+        <button id="btnHold" class="big">Hold game <kbd>H</kbd></button>
+        <button id="btnClear" class="big danger">Clear overlay <kbd>C</kbd></button>
+        <button id="btnRefresh" class="big">Refresh prices <kbd>R</kbd></button>
+        <button id="btnPending" class="big accent" hidden>Show new game</button>
+      </div>
+      <form id="searchForm" class="search" autocomplete="off">
+        <label for="searchInput">Manual search <kbd>/</kbd></label>
+        <div class="row">
+          <input id="searchInput" type="search" placeholder="Title and console, e.g. mortal kombat genesis" maxlength="200">
+          <button type="submit">Search</button>
+        </div>
+      </form>
+      <ol id="searchResults" class="results"></ol>
+      <form id="upcForm" class="search" autocomplete="off">
+        <label for="upcInput">UPC / barcode scanner <kbd>U</kbd></label>
+        <div class="row">
+          <input id="upcInput" inputmode="numeric" placeholder="Scan or type a UPC" maxlength="20">
+          <button type="submit">Look up</button>
+        </div>
+      </form>
+      <div class="usage" id="usage"></div>
+    </section>
+
+    <!-- preview -->
+    <section class="card preview" aria-labelledby="hPreview">
+      <div class="card-head">
+        <h2 id="hPreview">Overlay preview</h2>
+        <div class="seg" role="tablist">
+          <button id="tabLive" class="on" role="tab">On air</button>
+          <button id="tabDesign" role="tab">Design samples</button>
+        </div>
+      </div>
+      <div class="preview-stage" id="previewStage">
+        <div class="checker" id="previewBox">
+          <iframe id="liveFrame" title="Live overlay (exactly what OBS shows)" src="/overlay"></iframe>
+          <iframe id="designFrame" title="Design preview (watermarked sample data)" hidden></iframe>
+        </div>
+      </div>
+      <div class="design-controls" id="designControls" hidden>
+        <label>Sample <select id="sampleSel">
+          <option value="sample">Standard</option>
+          <option value="long-title">Long title</option>
+          <option value="six-figure">Six-figure prices</option>
+          <option value="low-values">Low values</option>
+          <option value="missing">Missing values (N/A)</option>
+        </select></label>
+        <span class="hint">Sample data is watermarked and never sent to OBS.</span>
+      </div>
+      <div class="quick-layout">
+        <label>Size <select data-setting="overlay.size"><option>compact</option><option>balanced</option><option>large</option></select></label>
+        <label>Position <select data-setting="overlay.position">
+          <option>bottom-left</option><option>bottom-center</option><option>bottom-right</option>
+          <option>top-left</option><option>top-center</option><option>top-right</option>
+          <option>side-left</option><option>side-right</option></select></label>
+        <label>Canvas <select id="canvasSel">
+          <option value="1080x1920">1080×1920 vertical</option>
+          <option value="720x1280">720×1280 vertical</option>
+          <option value="1920x1080">1920×1080 horizontal</option>
+          <option value="1280x720">1280×720 horizontal</option>
+        </select></label>
+      </div>
+      <p class="obs-url">OBS Browser Source URL: <code id="obsUrl"></code> <button class="ghost small" id="btnCopyUrl">Copy</button></p>
+    </section>
+
+    <!-- history -->
+    <section class="card history" aria-labelledby="hHistory">
+      <div class="card-head"><h2 id="hHistory">History</h2><button class="ghost small" id="btnReloadHistory">Reload</button></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Shown</th><th>Product</th><th>Console</th><th>Loose</th><th>Complete</th><th>New</th><th>Source</th><th>ID</th><th></th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- settings drawer -->
+  <aside id="settings" class="drawer" hidden aria-label="Settings">
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button class="ghost" id="btnCloseSettings">Close ✕</button>
+    </div>
+    <nav class="tabs" id="settingsTabs"></nav>
+    <div id="settingsBody" class="settings-body"></div>
+  </aside>
+
+  <!-- setup wizard -->
+  <div id="wizard" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="wizTitle">
+    <div class="modal-card">
+      <div class="wiz-steps" id="wizSteps"></div>
+      <h2 id="wizTitle"></h2>
+      <div id="wizBody"></div>
+      <div class="wiz-nav">
+        <button class="ghost" id="wizBack">Back</button>
+        <span class="spacer"></span>
+        <button class="ghost" id="wizSkip">Close</button>
+        <button id="wizNext">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

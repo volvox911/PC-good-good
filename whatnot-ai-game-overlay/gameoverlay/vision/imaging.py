@@ -126,10 +126,22 @@ def motion_frame(img: np.ndarray) -> np.ndarray:
     return cv2.GaussianBlur(small, (5, 5), 0).astype(np.float32)
 
 
-def motion_score(a: np.ndarray, b: np.ndarray) -> float:
+def motion_score(a: np.ndarray, b: np.ndarray, grid: int = 4, top: int = 2) -> float:
+    """Localized motion: mean abs difference of the 2 most-changed cells of a 4x4 grid.
+
+    A whole-frame mean is diluted by static background (an item swap may change
+    only ~20% of the frame), so motion is measured where it happens.
+    """
     if a.shape != b.shape:
         return 1.0
-    return float(np.mean(np.abs(a - b)) / 255.0)
+    d = np.abs(a - b) / 255.0
+    h, w = d.shape
+    cells = sorted(
+        (float(d[i * h // grid:(i + 1) * h // grid, j * w // grid:(j + 1) * w // grid].mean())
+         for i in range(grid) for j in range(grid)),
+        reverse=True,
+    )
+    return float(np.mean(cells[:top]))
 
 
 # -- fingerprints -------------------------------------------------------------------------------
