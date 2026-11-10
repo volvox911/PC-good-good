@@ -1,10 +1,11 @@
-// PRICE-O-MATIC slim price band · viewer overlay runtime
+// Price guide band · viewer overlay runtime
 //
 // * Connects to the local backend over a read-only WebSocket (/ws/overlay) and
 //   reconnects automatically (no OBS page refresh needed).
-// * Shows nothing until a verified record arrives. Every update is a full state
-//   snapshot applied as ONE atomic DOM update — the title, console and the three
-//   prices always change together.
+// * Between games the band stays on screen in an idle state (no game title, no
+//   prices) unless the operator turns that off; it never shows sample data. Every
+//   update is a full state snapshot applied as ONE atomic DOM update — the title,
+//   console and the three prices always change together.
 // * Exposes window.setGameOverlayData(record) / window.hideGameOverlay() (design
 //   prototype API). ?preview=1 is a watermarked design preview fed by the
 //   dashboard via postMessage; it never opens the live socket.
@@ -13,6 +14,8 @@ import {
   computeLayout,
   formatAsOf,
   formatCents,
+  idleRecord,
+  PLACEHOLDER,
   planTransition,
   reconnectDelay,
   resolveOrientation,
@@ -30,6 +33,7 @@ const els = {
   new: $("priceNew"),
   asOf: $("asOf"),
   attribution: $("attribution"),
+  metaLine: document.querySelector(".meta-line"),
   demoMark: $("demoMark"),
 };
 
@@ -37,9 +41,8 @@ const params = new URLSearchParams(location.search);
 const PREVIEW = params.get("preview") === "1";
 const SWAP_OUT_MS = 150;
 const SWAP_IN_MS = 180;
-const ENTER_MS = 380;
-const PRICE_CONDENSE = 0.86; // must match .price { transform: scaleX(...) } in overlay.css
-const EXIT_MS = 360;
+const ENTER_MS = 360;
+const EXIT_MS = 340;
 
 let layout = {
   size: "balanced",
@@ -47,10 +50,12 @@ let layout = {
   orientation: "auto",
   opacity: 1,
   fontScale: 1,
-  edgeOffset: 0.035,
+  edgeOffset: 0.008,
   attribution: "SOURCE: PRICECHARTING",
   showAttribution: false,
-  showRetrievalTime: true,
+  showRetrievalTime: false,
+  idlePanel: true,
+  idleTitle: "Price Guide",
   reducedMotion: false,
   disconnectHideMs: 120000,
 };
@@ -65,34 +70,63 @@ const prefersReduced = () =>
   layout.reducedMotion || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** What to show when no game is on air: the idle panel, or nothing at all. */
+const emptyTarget = () => (layout.idlePanel === false ? null : idleRecord(layout.idleTitle ?? "Price Guide"));
+
 // ------------------------------------------------------------------ rendering
-function setPrice(el, cents) {
-  const text = formatCents(cents);
-  el.textContent = text;
+function span(cls, text) {
+  const s = document.createElement("span");
+  s.className = cls;
+  s.textContent = text;
+  return s;
+}
+
+/**
+ * Price-tag style, exact to the cent: "$12.34" -> "$12" + smaller ".34";
+ * whole-dollar values drop ".00" ("$12"), which is the same exact value.
+ */
+function setPrice(el, cents, idle) {
+  let text = idle ? PLACEHOLDER : formatCents(cents);
+  if (text.endsWith(".00")) text = text.slice(0, -3);
+  const m = /^(\$[\d,]+)(\.\d\d)$/.exec(text);
+  el.replaceChildren(...(m ? [span("p-main", m[1]), span("p-cents", m[2])] : [span("p-main", text)]));
   el.classList.toggle("na", text === "N/A");
+  el.classList.toggle("placeholder", idle);
 }
 
 /** Single atomic write of every game field. */
 function render(rec) {
+  const idle = rec.idle === true;
   els.title.textContent = rec.title;
-  els.console.textContent = rec.platform;
-  setPrice(els.loose, rec.loose);
-  setPrice(els.complete, rec.complete);
-  setPrice(els.new, rec.new);
+  els.console.textContent = idle ? "" : rec.platform;
+  setPrice(els.loose, rec.loose, idle);
+  setPrice(els.complete, rec.complete, idle);
+  setPrice(els.new, rec.new, idle);
   renderFooter(rec);
-  els.machine.classList.toggle("is-stale", rec.freshness === "stale");
+  els.machine.classList.toggle("is-idle", idle);
+  els.machine.classList.toggle("is-stale", !idle && rec.freshness === "stale");
   els.demoMark.hidden = !(PREVIEW || rec.demo || demoMode);
+  document.body.dataset.content = idle ? "idle" : "record";
   els.machine.setAttribute(
     "aria-label",
-    `${rec.title}, ${rec.platform}. Loose ${formatCents(rec.loose)}, complete ${formatCents(rec.complete)}, new ${formatCents(rec.new)}.`,
+    idle
+      ? "Price guide — waiting for the next game"
+      : `${rec.title}, ${rec.platform}. Loose ${formatCents(rec.loose)}, complete ${formatCents(rec.complete)}, new ${formatCents(rec.new)}.`,
   );
   fitText();
   position();
 }
 
 function renderFooter(rec) {
-  els.asOf.textContent = rec.retrievedAt ? formatAsOf(rec.retrievedAt, new Date(), rec.freshness) : "";
-  els.asOf.classList.toggle("stale", rec.freshness === "stale");
+  // The retrieval time is optional (off by default). Stale prices — only ever shown when
+  // the operator allows it — are always labeled so they never pass as current.
+  const stale = !rec.idle && rec.freshness === "stale";
+  let text = "";
+  if (!rec.idle && rec.retrievedAt && layout.showRetrievalTime) text = formatAsOf(rec.retrievedAt, new Date(), rec.freshness);
+  else if (stale) text = "CACHED";
+  els.asOf.textContent = text;
+  els.asOf.classList.toggle("stale", stale);
+  els.metaLine.hidden = !text && els.attribution.hidden;
 }
 
 function clearText() {
@@ -102,23 +136,33 @@ function clearText() {
 function fitText() {
   const fs = Number(layout.fontScale) || 1;
   // Title: up to 2 lines at full size, shrinking gracefully, then 3 lines (clamped).
+  // Title: one line at full size if possible (shrinking a little), otherwise two
+  // balanced lines at a smaller size — the sign never grows taller.
   const t = els.title;
-  let size = 38 * fs;
-  const min = 24;
+  t.classList.remove("wrap");
+  let size = 62 * fs;
   t.style.fontSize = size + "px";
-  const lines = (n, s) => n * s * 1.12 + s * 0.06 + 2;
-  while (t.scrollHeight > lines(2, size) && size > min) {
+  while (t.scrollWidth > t.clientWidth + 1 && size > 40) {
     size -= 2;
     t.style.fontSize = size + "px";
   }
-  // Prices: each readout as large as its display allows (huge by default, a
-  // six-figure value shrinks only itself) — never overflowing the CRT glass.
-  // Digits are drawn with scaleX(PRICE_CONDENSE) in CSS, so measure accordingly.
-  const base = 60;
+  if (t.scrollWidth > t.clientWidth + 1) {
+    t.classList.add("wrap");
+    size = 38 * fs;
+    t.style.fontSize = size + "px";
+    const lines = (n, s) => n * s * 1.14 + s * 0.1 + 2;
+    while (t.scrollHeight > lines(2, size) && size > 20) {
+      size -= 1;
+      t.style.fontSize = size + "px";
+    }
+  }
+  // Prices: each as large as its tag allows (a six-figure value shrinks only itself).
+  const base = 54;
   for (const el of [els.loose, els.complete, els.new]) {
-    el.style.fontSize = base * fs + "px";
-    const avail = el.parentElement.clientWidth - 12 - 14; // padding + breathing room from the bezel
-    const need = el.scrollWidth * PRICE_CONDENSE;
+    el.style.fontSize = (el.classList.contains("na") ? 40 : base) * fs + "px";
+    if (el.classList.contains("na")) continue;
+    const avail = el.parentElement.clientWidth - 16; // breathing room inside the tag
+    const need = el.scrollWidth;
     let eff = base * fs;
     if (need > avail && need > 0) eff = (base * fs * avail) / need;
     el.style.fontSize = Math.max(22, Math.floor(eff)) + "px";
@@ -131,7 +175,6 @@ function applyLayoutSettings() {
   // Source attribution is off by default (operator choice); the retrieval time stays on.
   els.attribution.textContent = layout.attribution || "";
   els.attribution.hidden = !(layout.showAttribution && layout.attribution);
-  els.asOf.hidden = layout.showRetrievalTime === false;
   document.documentElement.classList.toggle("reduced-motion", !!layout.reducedMotion);
   const o = resolveOrientation(window.innerWidth, window.innerHeight, layout.orientation);
   if (o !== orientation) {
@@ -186,6 +229,7 @@ async function apply(next) {
     } else if (plan === "exit") {
       setVisible(false);
       shown = null;
+      document.body.dataset.content = "none";
       if (!reduced) await wait(EXIT_MS);
       if (!visible) clearText(); // no stale game data left in the DOM
     } else if (plan === "swap") {
@@ -227,7 +271,7 @@ window.setGameOverlayData = (record) => {
   apply(v.record);
   return true;
 };
-window.hideGameOverlay = () => apply(null);
+window.hideGameOverlay = () => apply(emptyTarget());
 window.__overlayState = () => ({ visible, shown, busy, demoMode, preview: PREVIEW, layout, orientation });
 
 // ------------------------------------------------------------------ live connection
@@ -244,11 +288,11 @@ function onState(msg) {
   demoMode = msg.demoMode === true;
   applyLayoutSettings();
   if (!msg.visible || !msg.record) {
-    apply(null);
+    apply(emptyTarget()); // game left: clear to the idle panel (or hide, if configured)
     return;
   }
   const v = validateRecord(msg.record);
-  apply(v.ok ? v.record : null); // malformed data is never displayed
+  apply(v.ok ? v.record : emptyTarget()); // malformed data is never displayed
 }
 
 function connect() {
@@ -316,8 +360,8 @@ function watchdog() {
     } catch {}
   }
   // Freshness/hide policy during long outages: never leave possibly-outdated data up forever.
-  if (disconnectedAt !== null && visible && now - disconnectedAt > (layout.disconnectHideMs || 120000)) {
-    apply(null);
+  if (disconnectedAt !== null && visible && shown && !shown.idle && now - disconnectedAt > (layout.disconnectHideMs || 120000)) {
+    apply(emptyTarget());
   }
   // Keep the "AS OF" line correct across midnight etc.
   if (shown && visible && !busy) renderFooter(shown);
@@ -342,7 +386,7 @@ if (PREVIEW) {
       applyLayoutSettings();
       window.setGameOverlayData({ ...e.data.record, demo: true });
     } else if (e.data.type === "preview-hide") {
-      apply(null);
+      apply(emptyTarget());
     }
   });
   if (window.parent !== window) window.parent.postMessage({ type: "preview-ready" }, location.origin);

@@ -81,6 +81,24 @@ export function validateRecord(raw, { allowMissingTime = false } = {}) {
   };
 }
 
+/** The panel's resting state between games: no title from any game, no prices. */
+export function idleRecord(title = "") {
+  return {
+    idle: true,
+    title: typeof title === "string" ? title.slice(0, 60) : "",
+    platform: "",
+    productId: "__idle__",
+    loose: null,
+    complete: null,
+    new: null,
+    retrievedAt: null,
+    freshness: "fresh",
+    demo: false,
+  };
+}
+
+export const PLACEHOLDER = "—";
+
 export function sameRecord(a, b) {
   if (!a || !b) return false;
   return (
@@ -114,10 +132,10 @@ export function formatAsOf(date, now = new Date(), freshness = "fresh") {
   return `${freshness === "stale" ? "CACHED · " : ""}AS OF ${day}${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export const DESIGN_WIDTH = { portrait: 920, landscape: 1400 };
+export const DESIGN_WIDTH = { portrait: 1000, landscape: 1000 };
 const WIDTH_FRACTION = {
-  portrait: { compact: 0.7, balanced: 0.84, large: 0.9 },
-  landscape: { compact: 0.46, balanced: 0.58, large: 0.7 },
+  portrait: { compact: 0.86, balanced: 0.985, large: 0.995 },
+  landscape: { compact: 0.46, balanced: 0.56, large: 0.66 },
 };
 const MAX_HEIGHT_FRACTION = { portrait: 0.38, landscape: 0.4 };
 
@@ -130,7 +148,7 @@ export function resolveOrientation(vw, vh, mode = "auto") {
  * Where to draw the machine. Returns design->canvas scale and top-left position.
  * `designHeight` is the machine's unscaled height for the resolved orientation.
  */
-export function computeLayout({ vw, vh, size = "balanced", position = "top-center", orientation = "auto", edgeOffset = 0.035, designHeight }) {
+export function computeLayout({ vw, vh, size = "balanced", position = "top-center", orientation = "auto", edgeOffset = 0.008, designHeight }) {
   const o = resolveOrientation(vw, vh, orientation);
   const dw = DESIGN_WIDTH[o];
   const frac = (WIDTH_FRACTION[o] || WIDTH_FRACTION.portrait)[size] ?? WIDTH_FRACTION[o].balanced;
@@ -142,7 +160,7 @@ export function computeLayout({ vw, vh, size = "balanced", position = "top-cente
   if (designHeight && designHeight * scale > maxH) scale = maxH / designHeight;
   const w = dw * scale;
   const h = (designHeight || 0) * scale;
-  const marginX = Math.max(vw * 0.04, 8);
+  const marginX = Math.max(vw * 0.0075, 4);
   const marginY = vh * Math.max(0, edgeOffset);
   let x;
   if (position.endsWith("-left")) x = marginX;

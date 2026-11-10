@@ -75,12 +75,14 @@ refresh.
 ## 5. Whatnot considerations
 
 - Whatnot's app draws its own UI (host name, viewer count, chat, bid button, timer) over parts
-  of the vertical video. The default slim *balanced top-center* band keeps the central product
-  area and the bottom (chat/bid area) clear. Check it on a phone in the Whatnot app: if the host
-  name / viewer count covers the band, increase *Distance from edge* (Settings → Display &
-  Overlay) until it sits just below them.
+  of the vertical video. The default sign sits flush at the top and keeps the product area and
+  the bottom (chat/bid area) clear. Check it on a phone in the Whatnot app: if the host name /
+  viewer count covers the sign, increase *Distance from edge* (Settings → Display & Overlay)
+  until it sits just below them.
+- The sign stays on screen between games with its prices cleared. To hide it entirely when no
+  game is shown, untick *Keep the panel on screen between games*.
 - If you ever restart the app during a show, OBS does not need a refresh — the overlay
-  reconnects automatically and shows nothing until the next verified record.
+  reconnects automatically and shows the cleared sign until the next verified record.
 
 ## 6. Horizontal (16:9) streams
 

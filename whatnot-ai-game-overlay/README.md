@@ -1,4 +1,4 @@
-# Whatnot AI Game Overlay — *Price-O-Matic*
+# Whatnot AI Game Overlay
 
 Hold a retro video game up to your Sony ZV-1 during a Whatnot auction. The app identifies the
 game and its console with Claude Vision, validates the match against the PriceCharting catalog,
@@ -7,13 +7,13 @@ and shows them on your stream in an animated OBS overlay — automatically, game
 
 ![Overlay at 1080×1920](docs/screenshots/standard_1080x1920.png)
 
-| Long title | Six-figure prices | Missing value (`N/A`) | 16:9 layout |
-|---|---|---|---|
-| ![](docs/screenshots/long-title_1080x1920.png) | ![](docs/screenshots/six-figure_1080x1920.png) | ![](docs/screenshots/missing-na_720x1280.png) | ![](docs/screenshots/standard_1920x1080.png) |
+| Between games | Long title | Six-figure prices | Missing value (`N/A`) | 16:9 layout |
+|---|---|---|---|---|
+| ![](docs/screenshots/idle_1080x1920.png) | ![](docs/screenshots/long-title_1080x1920.png) | ![](docs/screenshots/six-figure_1080x1920.png) | ![](docs/screenshots/missing-na_720x1280.png) | ![](docs/screenshots/standard_1920x1080.png) |
 
 *(Screenshots are rendered by the automated browser tests with mock PriceCharting data; the
-background is transparent in OBS. Fonts on Windows use Bahnschrift, so text looks slightly
-different from these Linux renders.)*
+background is transparent in OBS. The fonts are bundled with the app, so OBS on Windows renders
+the same lettering.)*
 
 > **Status:** fully implemented and tested with mocks, fakes and a real browser. It has **not yet
 > been run against your live OBS, Sony ZV-1, Anthropic account or PriceCharting account** — those
@@ -48,29 +48,30 @@ readable game to prices on screen (depends on Claude latency; not yet measured l
 
 ## What viewers see
 
-A **slim price band across the top of the stream** (about 10% of a vertical frame), styled
-as scavenged hardware: hammered copper frame with verdigris patina, brass screws, a
-stamped-steel inset, a small breathing amber signal lamp, a hazard stripe on the frame's lower
-lip, and three mint-green CRT readouts with amber stencil labels inside the screens.
+A **slim, full-width sign across the very top of the stream** (about 8% of a vertical frame):
+weathered dark-metal plate with a bronze rim and corner bolts, red/white/blue racing stripes,
+the game title in cream hand-lettering with a red brush underline and the console below it,
+and three aged-paper price tags — **LOOSE**, **COMPLETE** and a red-headed **NEW**.
 
-- Only the band is opaque; everything else is transparent.
-- One row for the game title (wraps to two lines and shrinks gracefully for very long titles)
-  with the exact console on the right.
-- **Exactly three prices: LOOSE, COMPLETE, NEW** — 100% of the PriceCharting values, never
-  adjusted. Missing values show **N/A**, never `$0.00`. Each readout auto-fits so six-figure
-  prices stay inside the glass while normal prices stay huge.
-- A small `AS OF HH:MM` under the console shows the PriceCharting retrieval time (can be
-  turned off). Stale data allowed by policy is labeled `CACHED · AS OF …`. A source-attribution
-  line is available but **off by default** (Settings → Display & Overlay → *Show source
-  attribution*) — turn it on if your PriceCharting commercial agreement requires it.
-- Game changes animate as one complete ~300 ms mechanical panel swap; the title and all prices
-  change in the same frame. `prefers-reduced-motion` (or the *Reduce motion* setting) disables
-  animation.
-- Presets: **compact / balanced / large** × **top-left / top-center / top-right**
-  (default *balanced top-center*), plus bottom and side positions, opacity, font scale and
-  distance from the edge. Portrait and landscape layouts are chosen automatically from the
-  canvas shape (16:9 uses a single row).
-- All decoration is CSS/inline SVG — no external images, fonts or CDNs.
+- Only the sign is opaque; everything else is transparent.
+- **The sign stays on screen between games.** When a game leaves, the title and prices clear
+  (`PRICE GUIDE` with dashes) instead of the sign disappearing. Untick *Keep the panel on screen
+  between games* in Settings → Display & Overlay to hide it completely instead.
+- Long titles shrink, then wrap to two lines — the sign never grows taller.
+- **Exactly three prices** — 100% of the PriceCharting values, never adjusted or rounded.
+  Whole-dollar values show as `$28`; values with cents show the cents smaller, price-tag style
+  (`$42.50`). Missing values show **N/A**, never `$0.00`. Each tag auto-fits its price.
+- No time or source line by default. *Show “AS OF” retrieval time* and *Show source attribution*
+  are available in Settings → Display & Overlay (turn attribution on if your PriceCharting
+  commercial agreement requires it). Stale data — only shown if you allow it — is always labeled
+  `CACHED`.
+- Game changes animate as one ~300 ms swap; the title and all prices change in the same frame.
+  `prefers-reduced-motion` (or the *Reduce motion* setting) disables animation.
+- Presets: **compact / balanced / large**, positions **top** (default), bottom and side,
+  opacity, font scale and distance from the edge. The same single-row sign is used for 9:16
+  and 16:9 canvases.
+- Decoration is CSS/inline SVG; the two fonts (Caveat Brush, Oswald — SIL Open Font License,
+  licenses in `gameoverlay/web/overlay/`) are bundled, so nothing is loaded from the internet.
 
 ## How recognition stays accurate
 

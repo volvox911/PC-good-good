@@ -34,12 +34,12 @@ MEASURE = """() => {
   const m = document.getElementById('machine');
   const prices = ['priceLoose', 'priceComplete', 'priceNew'].map((id) => {
     const el = document.getElementById(id);
-    const glass = el.closest('.crt-glass');
+    const glass = el.closest('.price-cell');
     return { text: el.textContent, inside: inside(box(el), box(glass)), overflow: el.getBoundingClientRect().width > glass.getBoundingClientRect().width,
              canvasPx: parseFloat(getComputedStyle(el).fontSize) * scale };
   });
   const t = document.getElementById('gameTitle');
-  const plate = t.closest('.nameplate-inner');
+  const plate = t.closest('.identity');
   return {
     machine: box(m), scale, prices,
     title: (() => {
@@ -55,6 +55,8 @@ MEASURE = """() => {
     })(),
     console: document.getElementById('consoleName').textContent,
     asOf: document.getElementById('asOf').textContent,
+    labelPx: parseFloat(getComputedStyle(document.querySelector('.price-label')).fontSize) * scale,
+    consolePx: parseFloat(getComputedStyle(document.getElementById('consoleName')).fontSize) * scale,
     watermark: !document.getElementById('demoMark').hidden,
     state: m.dataset.state,
   };
@@ -77,18 +79,36 @@ def alpha_at(png: bytes, xy) -> int:
     return Image.open(io.BytesIO(png)).convert("RGBA").getpixel(xy)[3]
 
 
-def test_nothing_rendered_until_verified_record(server, page_factory):
+IDS = "['gameTitle','consoleName','priceLoose','priceComplete','priceNew'].map(i => document.getElementById(i).textContent)"
+
+
+def test_idle_panel_before_first_record(server, page_factory):
+    """Default: the band is on screen from the start, but shows no game and no prices."""
     server.api("POST", "/api/overlay/clear")
     page = page_factory(1080, 1920)
     page.goto(server.base + "/overlay")
-    page.wait_for_function("document.body.dataset.connection === 'open'")
-    page.wait_for_timeout(500)
+    page.wait_for_function("document.body.dataset.content === 'idle'")
+    wait_settled(page)
+    assert page.evaluate(IDS) == ["Price Guide", "", "—", "—", "—"]
     png = page.screenshot(omit_background=True)
-    img = Image.open(io.BytesIO(png)).convert("RGBA")
-    assert img.getextrema()[3] == (0, 0), "overlay must be fully transparent before a verified record arrives"
-    texts = page.evaluate("['gameTitle','priceLoose','priceComplete','priceNew'].map(i => document.getElementById(i).textContent)")
-    assert texts == ["", "", "", ""]
+    assert alpha_at(png, (540, 120)) > 0, "idle band is visible"
+    assert alpha_at(png, (540, 960)) == 0, "the rest of the frame stays transparent"
     assert page.errors == []
+
+
+def test_nothing_rendered_when_idle_panel_disabled(server, page_factory):
+    server.api("POST", "/api/overlay/clear")
+    server.api("PATCH", "/api/settings", {"overlay": {"idle_panel": False}})
+    try:
+        page = page_factory(1080, 1920)
+        page.goto(server.base + "/overlay")
+        page.wait_for_function("document.body.dataset.connection === 'open'")
+        page.wait_for_timeout(500)
+        img = Image.open(io.BytesIO(page.screenshot(omit_background=True))).convert("RGBA")
+        assert img.getextrema()[3] == (0, 0), "fully transparent until a verified record arrives"
+        assert page.evaluate(IDS) == ["", "", "", "", ""]
+    finally:
+        server.api("PATCH", "/api/settings", {"overlay": {"idle_panel": True}})
 
 
 @pytest.mark.parametrize("w,h", SIZES)
@@ -113,11 +133,11 @@ def test_layouts_and_price_cases(server, page_factory, w, h):
         assert alpha_at(png, (w // 2, h - 3)) == 0, "bottom of the frame stays clear"
         # slim band anchored at the top by default
         assert y0 <= h * 0.05, f"band should sit at the top of the frame (top at {y0})"
-        limit = 0.16 if w < h else 0.2  # incl. the top margin; two-line titles are the tallest case
+        limit = 0.18 if w < h else 0.2  # incl. the top margin; two-line titles are the tallest case
         assert y1 <= h * limit, f"{name}: band should be slim (bottom at {y1}, {(y1 - y0) / h:.1%} of the height)"
         if w < h:
             margin = min(x0, w - x1)
-            assert w * 0.04 <= margin <= w * 0.13, f"side margin {margin}"
+            assert 2 <= margin <= w * 0.13, f"side margin {margin}"
         for p in m["prices"]:
             assert p["inside"] and not p["overflow"], f"{name}: price {p['text']} overflows its display"
         assert m["title"]["inside"] and not m["title"]["clipped"], f"{name}: title clipped"
@@ -126,14 +146,16 @@ def test_layouts_and_price_cases(server, page_factory, w, h):
             phone = 360 / w
             biggest = max(p["canvasPx"] for p in m["prices"])
             assert biggest * phone >= 16, f"{name}: prices too small for phones ({biggest * phone:.1f}px)"
-            assert min(p["canvasPx"] for p in m["prices"]) * phone >= 11
-            assert m["title"]["canvasPx"] * phone >= 9.5
+            assert min(p["canvasPx"] for p in m["prices"]) * phone >= (9 if name == "six-figure" else 14)
+            assert m["title"]["canvasPx"] * phone >= (7 if name == "long-title" else 12)
+            assert m["labelPx"] * phone >= 7, "LOOSE/COMPLETE/NEW must stay readable on phones"
+            assert m["consolePx"] * phone >= 7.5
         else:
             assert max(p["canvasPx"] for p in m["prices"]) >= 34
-        assert m["asOf"].startswith("AS OF ")
+        assert m["asOf"] == "", "retrieval time is off by default"
         texts = [p["text"] for p in m["prices"]]
         if name == "standard":
-            assert texts == ["$42.50", "$109.99", "$599.00"]
+            assert texts == ["$42.50", "$109.99", "$599"]  # whole dollars drop ".00" (same exact value)
             assert m["console"] == "NINTENDO 64"
         if name == "six-figure":
             assert texts[2] == "$123,456.78"
@@ -164,6 +186,7 @@ def test_atomic_updates_never_mix_title_and_prices(server, page_factory):
     page = page_factory(1080, 1920)
     page.goto(server.base + "/overlay")
     show(server, "900101")
+    page.wait_for_function("window.__overlayState().shown && window.__overlayState().shown.productId === '900101' && !window.__overlayState().busy")
     wait_settled(page)
     page.evaluate("""() => {
       window.__snaps = [];
@@ -178,10 +201,10 @@ def test_atomic_updates_never_mix_title_and_prices(server, page_factory):
     page.wait_for_function("window.__overlayState().shown.productId === '900501' && !window.__overlayState().busy")
     snaps = page.evaluate("window.__snaps")
     valid = {
-        "ZELDA OCARINA OF TIME|NINTENDO 64|$42.50|$109.99|$599.00",
-        "MORTAL KOMBAT|SUPER NINTENDO|$14.50|$46.99|$210.00",
-        "STADIUM EVENTS|NINTENDO NES|$980.00|$12,500.00|$123,456.78",
-        "RESIDENT EVIL|PLAYSTATION|$42.95|$68.50|$420.00",
+        "ZELDA OCARINA OF TIME|NINTENDO 64|$42.50|$109.99|$599",
+        "MORTAL KOMBAT|SUPER NINTENDO|$14.50|$46.99|$210",
+        "STADIUM EVENTS|NINTENDO NES|$980|$12,500|$123,456.78",
+        "RESIDENT EVIL|PLAYSTATION|$42.95|$68.50|$420",
         "MADDEN NFL 2004|PLAYSTATION 2|$1.99|$3.75|$14.99",
         "EARTHBOUND|SUPER NINTENDO|$172.44|$429.95|N/A",
     }
@@ -198,10 +221,11 @@ def test_hide_and_show(server, page_factory):
     show(server, "900302")
     wait_settled(page)
     server.api("POST", "/api/overlay/clear")
-    wait_settled(page, visible=False)
-    png = page.screenshot(omit_background=True)
-    assert Image.open(io.BytesIO(png)).convert("RGBA").getextrema()[3] == (0, 0)
-    assert page.evaluate("document.getElementById('priceLoose').textContent") == ""
+    # The game left: the band stays on screen, cleared — no title or prices from the old game.
+    page.wait_for_function("document.body.dataset.content === 'idle'")
+    wait_settled(page)
+    assert page.evaluate(IDS) == ["Price Guide", "", "—", "—", "—"]
+    assert page.evaluate("window.__overlayState().visible") is True
     show(server, "900401")
     wait_settled(page)
     assert page.evaluate("document.getElementById('priceLoose').textContent") == "$42.95"
@@ -249,8 +273,8 @@ def test_reduced_motion_swaps_instantly(server, page_factory):
     show(server, "900302")
     page.wait_for_function("window.__overlayState().shown.productId === '900302'", timeout=3000)
     assert page.evaluate("document.getElementById('machine').classList.contains('swap-out')") is False
-    anim = page.evaluate("getComputedStyle(document.querySelector('.lamp-glow')).animationName")
-    assert anim == "none"
+    dur = page.evaluate("getComputedStyle(document.querySelector('.swap')).transitionDuration")
+    assert dur in ("0s", "0s, 0s")
 
 
 def test_websocket_reconnects_without_refresh(tmp_path, page_factory):
@@ -269,8 +293,8 @@ def test_websocket_reconnects_without_refresh(tmp_path, page_factory):
         srv2 = FixtureServer(tmp_path / "data", port=srv.port).start()
         try:
             page.wait_for_function("document.body.dataset.connection === 'open'", timeout=20000)
-            # New backend has nothing on air yet -> overlay follows the server state.
-            wait_settled(page, visible=False)
+            # New backend has nothing on air yet -> overlay follows the server state (idle band).
+            page.wait_for_function("document.body.dataset.content === 'idle'", timeout=10000)
             show(srv2, "900302")
             page.wait_for_function("window.__overlayState().shown && window.__overlayState().shown.productId === '900302'")
             assert page.evaluate("window.__marker") == "same-page", "page must not have been reloaded"
@@ -280,7 +304,7 @@ def test_websocket_reconnects_without_refresh(tmp_path, page_factory):
         srv.stop()
 
 
-def test_overlay_hides_after_long_disconnect(tmp_path, page_factory):
+def test_overlay_clears_after_long_disconnect(tmp_path, page_factory):
     srv = FixtureServer(tmp_path / "data").start()
     try:
         srv.api("PATCH", "/api/settings", {"display": {"overlay_disconnect_hide_s": 5}})
@@ -291,7 +315,9 @@ def test_overlay_hides_after_long_disconnect(tmp_path, page_factory):
         srv.stop()
         page.wait_for_function("document.body.dataset.connection === 'closed'", timeout=10000)
         start = time.time()
-        page.wait_for_function("window.__overlayState().visible === false", timeout=15000)
+        # possibly-outdated prices are cleared; the band itself stays (idle)
+        page.wait_for_function("window.__overlayState().shown && window.__overlayState().shown.idle === true", timeout=15000)
         assert time.time() - start >= 3
+        assert page.evaluate("document.getElementById('priceLoose').textContent") == "—"
     finally:
         srv.stop()

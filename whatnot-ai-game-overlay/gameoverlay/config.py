@@ -223,24 +223,46 @@ class OverlaySettings(BaseModel):
     opacity: float = Field(default=1.0, ge=0.3, le=1.0)
     font_scale: float = Field(default=1.0, ge=0.8, le=1.3)
     # Extra distance from the anchored edge, as a fraction of the canvas height.
-    edge_offset: float = Field(default=0.035, ge=0.0, le=0.3)
+    edge_offset: float = Field(default=0.008, ge=0.0, le=0.3)
     # Source attribution line is off by default; enable it if your PriceCharting
     # commercial agreement requires on-screen attribution.
     show_attribution: bool = False
     attribution_text: str = Field(default="SOURCE: PRICECHARTING", max_length=60)
-    show_retrieval_time: bool = True
+    show_retrieval_time: bool = False
+    # Keep the band on screen between games (cleared, no prices) instead of hiding it.
+    idle_panel: bool = True
+    idle_title: str = Field(default="Price Guide", max_length=40)
     show_product_link: bool = False
     reduced_motion: bool = False
     canvas_width: int = Field(default=1080, ge=320, le=7680)
     canvas_height: int = Field(default=1920, ge=320, le=7680)
 
-    @field_validator("attribution_text")
+    @field_validator("attribution_text", "idle_title")
     @classmethod
     def _printable(cls, v: str) -> str:
         v = " ".join(v.split())
         if any(ord(c) < 32 for c in v):
             raise ValueError("control characters are not allowed")
         return v
+
+
+SETTINGS_VERSION = 2
+
+
+def migrate_settings(raw: dict) -> dict:
+    """Upgrade settings saved by older versions (stored as JSON in the database)."""
+    raw = dict(raw)
+    version = int(raw.get("settings_version") or 1)
+    if version < 2:
+        # v2: the "AS OF" time is no longer shown by default (operator request).
+        overlay = dict(raw.get("overlay") or {})
+        overlay["show_retrieval_time"] = False
+        # v2: the sign now sits flush at the top; move it up unless the operator changed it.
+        if overlay.get("edge_offset") in (None, 0.035):
+            overlay["edge_offset"] = 0.008
+        raw["overlay"] = overlay
+    raw["settings_version"] = SETTINGS_VERSION
+    return raw
 
 
 class RuntimeSettings(BaseModel):
@@ -252,6 +274,7 @@ class RuntimeSettings(BaseModel):
     overlay: OverlaySettings = Field(default_factory=OverlaySettings)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     setup_completed: bool = False
+    settings_version: int = SETTINGS_VERSION
 
     def merged(self, patch: dict) -> "RuntimeSettings":
         """Return a validated copy with ``patch`` deep-merged in."""

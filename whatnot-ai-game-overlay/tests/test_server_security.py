@@ -50,6 +50,18 @@ def test_public_overlay_has_no_secrets_or_sample_data(live):
         assert "/api/" not in body, "overlay assets must not reference admin routes"
 
 
+def test_bundled_fonts_are_served_locally(live):
+    for name in ("caveat-brush.ttf", "oswald.ttf"):
+        r = live.get(f"/overlay/static/{name}")
+        assert r.status_code == 200 and r.headers["content-type"] == "font/ttf" and len(r.content) > 10_000
+    import re
+
+    css = live.get("/overlay/static/overlay.css").text
+    for target in re.findall(r"url\(\s*[\"']?([^\"')]+)", css):
+        assert target.startswith(("data:", "/overlay/static/", "%23")), f"external dependency: {target[:60]}"
+    assert "@import" not in css
+
+
 def test_health_is_minimal(live):
     r = live.get("/health")
     assert r.status_code == 200 and set(r.json()) == {"status", "uptimeS"}

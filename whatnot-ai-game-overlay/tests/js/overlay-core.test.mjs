@@ -9,6 +9,7 @@ import {
   planTransition,
   reconnectDelay,
   resolveOrientation,
+  idleRecord,
   sameRecord,
   validateRecord,
 } from "../../gameoverlay/web/overlay/overlay-core.js";
@@ -102,6 +103,18 @@ test("planTransition: enter / swap / refresh / exit", () => {
   assert.equal(planTransition(false, null, null), "none");
 });
 
+test("idle panel: game -> idle swaps the whole panel; idle -> idle is a no-op", () => {
+  const a = validateRecord(good).record;
+  const idle = idleRecord("Price Guide");
+  assert.equal(idle.loose, null);
+  assert.equal(idle.productId, "__idle__");
+  assert.equal(planTransition(false, null, idle), "enter");
+  assert.equal(planTransition(true, a, idle), "swap");
+  assert.equal(planTransition(true, idle, a), "swap");
+  assert.equal(planTransition(true, idle, idleRecord("Price Guide")), "refresh");
+  assert.equal(planTransition(true, idle, idleRecord("Next up")), "swap");
+});
+
 test("formatAsOf", () => {
   const now = new Date(2026, 10, 10, 15, 0);
   assert.equal(formatAsOf(new Date(2026, 10, 10, 14, 32), now), "AS OF 14:32");
@@ -110,25 +123,25 @@ test("formatAsOf", () => {
   assert.equal(formatAsOf(new Date("bad"), now), "");
 });
 
-test("layout presets: portrait default is a slim balanced top-center band with 8% margins", () => {
-  const L = computeLayout({ vw: 1080, vh: 1920, designHeight: 175 });
+test("layout presets: portrait default is a slim, full-width sign at the very top", () => {
+  const L = computeLayout({ vw: 1080, vh: 1920, designHeight: 136 });
   assert.equal(L.orientation, "portrait");
   const margin = (1080 - L.width) / 2;
-  assert.ok(margin >= 1080 * 0.07 && margin <= 1080 * 0.12, `margin ${margin}`);
-  assert.ok(L.y >= 0 && L.y <= 1920 * 0.05, "anchored at the top of the frame");
-  assert.ok(L.y + L.height <= 1920 * 0.15, "slim: stays in the top strip");
+  assert.ok(margin >= 2 && margin <= 1080 * 0.02, `margin ${margin}`);
+  assert.ok(L.y >= 0 && L.y <= 1920 * 0.02, "flush with the top of the frame");
+  assert.ok(L.y + L.height <= 1920 * 0.1, "slim: stays in the top strip");
 });
 
 test("layout presets: sizes and positions", () => {
   const c = computeLayout({ vw: 1080, vh: 1920, size: "compact", designHeight: 640 });
   const l = computeLayout({ vw: 1080, vh: 1920, size: "large", designHeight: 640 });
   assert.ok(c.width < l.width);
-  const left = computeLayout({ vw: 1080, vh: 1920, position: "bottom-left", designHeight: 640 });
-  const right = computeLayout({ vw: 1080, vh: 1920, position: "bottom-right", designHeight: 640 });
+  const left = computeLayout({ vw: 1080, vh: 1920, size: "compact", position: "bottom-left", designHeight: 136 });
+  const right = computeLayout({ vw: 1080, vh: 1920, size: "compact", position: "bottom-right", designHeight: 136 });
   assert.ok(left.x < right.x && left.x >= 0 && right.x + right.width <= 1080);
-  const top = computeLayout({ vw: 1080, vh: 1920, position: "top-center", designHeight: 175 });
+  const top = computeLayout({ vw: 1080, vh: 1920, position: "top-center", designHeight: 136 });
   assert.ok(top.y < 200);
-  const bottom = computeLayout({ vw: 1080, vh: 1920, position: "bottom-center", designHeight: 175 });
+  const bottom = computeLayout({ vw: 1080, vh: 1920, position: "bottom-center", designHeight: 136 });
   assert.ok(bottom.y > 1920 * 0.8, "bottom presets remain available");
   const side = computeLayout({ vw: 1080, vh: 1920, position: "side-right", designHeight: 640 });
   assert.ok(side.width <= 1080 * 0.46 + 1);

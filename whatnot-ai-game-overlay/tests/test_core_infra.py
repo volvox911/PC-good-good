@@ -57,10 +57,25 @@ def test_invalid_settings_rejected():
 def test_defaults_match_design_brief():
     s = RuntimeSettings()
     assert s.overlay.size == "balanced" and s.overlay.position == "top-center"
-    assert s.overlay.show_attribution is False and s.overlay.show_retrieval_time is True
+    assert s.overlay.show_attribution is False and s.overlay.show_retrieval_time is False
+    assert s.overlay.idle_panel is True
     assert s.pricing.price_refresh_s == 3600
     assert s.pricing.min_request_interval_s >= 1.0
     assert s.recognition.model == "claude-opus-5-5"
+
+
+def test_settings_migration_turns_off_retrieval_time():
+    from gameoverlay.config import SETTINGS_VERSION, migrate_settings
+
+    old = RuntimeSettings().model_dump()
+    old.pop("settings_version")
+    old["overlay"]["show_retrieval_time"] = True  # saved by an older version
+    m = migrate_settings(old)
+    assert m["overlay"]["show_retrieval_time"] is False and m["settings_version"] == SETTINGS_VERSION
+    assert RuntimeSettings.model_validate(m).overlay.position == old["overlay"]["position"]
+    # current-version settings keep the operator's own choice
+    m["overlay"]["show_retrieval_time"] = True
+    assert migrate_settings(m)["overlay"]["show_retrieval_time"] is True
 
 
 def test_refuses_non_loopback_by_default(monkeypatch):
@@ -101,3 +116,23 @@ def test_redaction_filter():
     assert "supersecretvalue123" not in out
     assert "abcdef0123456789" not in out
     assert "sk-ant-api03" not in out
+
+
+def test_existing_install_settings_are_migrated_on_start(tmp_path):
+    """An install that saved settings before v2 stops showing the time after upgrading."""
+    from gameoverlay.config import AppConfig, Environment
+    from gameoverlay.services import Services
+
+    cfg = AppConfig(env=Environment.TEST, data_dir=tmp_path, port=8765)
+    old = RuntimeSettings().merged({"overlay": {"show_retrieval_time": True, "size": "large"}}).model_dump()
+    old.pop("settings_version")
+    d = Database(cfg.db_path)
+    d.set_setting("runtime", old)
+    d.close()
+    svc = Services(cfg)
+    try:
+        assert svc.settings.overlay.show_retrieval_time is False
+        assert svc.settings.overlay.size == "large", "other operator choices are preserved"
+        assert svc.db.get_setting("runtime")["settings_version"] == 2
+    finally:
+        svc.db.close()

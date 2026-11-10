@@ -109,7 +109,7 @@ function renderPills(s) {
     pill("Claude", ai.replace("_", " "), aiCls),
     pill("PriceCharting", pc.replace("_", " "), pcCls),
     pill("Detection", eng.detectionEnabled ? "active" : "paused", detCls),
-    pill("Overlay", `${ov.visible ? "showing" : "hidden"} · ${ov.clients} src`, ov.clients > 0 ? "ok" : "warn"),
+    pill("Overlay", `${ov.visible ? "game shown" : "idle"} · ${ov.clients} src`, ov.clients > 0 ? "ok" : "warn"),
     pill("Spend (est.)", spend, usage.limitReached ? "err" : ""),
   );
 }
@@ -397,6 +397,8 @@ const SETTINGS_TABS = {
     { path: "overlay.opacity", label: "Opacity", type: "number", min: 0.3, max: 1, step: 0.05 },
     { path: "overlay.font_scale", label: "Font scale", type: "number", min: 0.8, max: 1.3, step: 0.05 },
     { path: "overlay.edge_offset", label: "Distance from edge (fraction of height)", type: "number", min: 0, max: 0.3, step: 0.005 },
+    { path: "overlay.idle_panel", label: "Keep the panel on screen between games", type: "checkbox", help: "When a game leaves, the panel stays up with its prices cleared. Untick to hide it completely between games." },
+    { path: "overlay.idle_title", label: "Text shown between games", type: "text", help: "Shown in the title spot while no game is on screen (leave empty for none)." },
     { path: "overlay.show_retrieval_time", label: "Show “AS OF” retrieval time", type: "checkbox" },
     { path: "overlay.show_attribution", label: "Show source attribution", type: "checkbox", help: "Off by default. Turn on if your PriceCharting commercial agreement requires on-screen attribution." },
     { path: "overlay.attribution_text", label: "Attribution text", type: "text", help: "Used only when source attribution is shown." },

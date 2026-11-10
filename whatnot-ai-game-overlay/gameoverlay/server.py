@@ -64,7 +64,8 @@ def _static(sub: str, name: str) -> FileResponse:
     if "/" in name or "\\" in name or name.startswith("."):
         raise HTTPException(404)
     p = _web(sub, name)
-    media = {".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml"}.get(p.suffix)
+    media = {".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml",
+             ".ttf": "font/ttf", ".txt": "text/plain"}.get(p.suffix)
     return FileResponse(p, media_type=media)
 
 

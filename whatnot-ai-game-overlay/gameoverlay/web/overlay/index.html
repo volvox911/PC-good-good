@@ -4,57 +4,60 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
-  <title>Price-O-Matic Overlay</title>
+  <title>Price Guide Overlay</title>
+  <link rel="preload" href="/overlay/static/caveat-brush.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/overlay/static/oswald.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="/overlay/static/overlay.css">
   <script type="module" src="/overlay/static/overlay.js"></script>
 </head>
 <body>
   <!--
-    Viewer-facing OBS Browser Source: a slim copper-and-steel price band.
-    Transparent everywhere except the band. Shows nothing until the backend sends a
-    verified PriceCharting record. Contains no sample prices; demo/preview data is
-    always watermarked.
+    Viewer-facing OBS Browser Source: a slim, weathered price sign across the top.
+    Transparent everywhere except the sign. Between games the sign stays on screen with
+    its prices cleared (unless the operator turns that off). Contains no sample prices;
+    demo/preview data is always watermarked. Fonts are bundled (SIL OFL) — no CDN.
   -->
   <div id="anchor" class="anchor" aria-live="polite">
-    <div id="machine" class="machine layout-portrait" data-state="hidden" role="img" aria-label="Game price guide">
-      <section class="body copper">
-        <i class="screw" style="left:3px;top:3px"></i><i class="screw" style="right:3px;top:3px"></i>
-        <i class="screw" style="left:3px;bottom:3px"></i><i class="screw" style="right:3px;bottom:3px"></i>
-        <div class="hazard" aria-hidden="true"><i class="bolt"></i><i class="bolt"></i></div>
+    <div id="machine" class="machine" data-state="hidden" role="img" aria-label="Game price guide">
+      <div class="panel">
+        <div class="stripes" aria-hidden="true"><i></i><i></i><i></i></div>
+        <i class="bolt tl" aria-hidden="true"></i><i class="bolt bl" aria-hidden="true"></i>
+        <i class="bolt tr" aria-hidden="true"></i><i class="bolt br" aria-hidden="true"></i>
 
-        <div class="inset">
-          <!-- game identity: title + console on one slim row -->
-          <div class="nameplate">
-            <div class="nameplate-inner">
-              <span class="lamp" aria-hidden="true"><span class="lamp-glass"></span><span class="lamp-glow"></span></span>
-              <div class="swap title-swap" id="titleSwap">
-                <h1 class="game-title" id="gameTitle"></h1>
-              </div>
-              <div class="swap meta-swap">
-                <div class="console-tag"><span class="console-name stencil" id="consoleName"></span></div>
-                <div class="meta-line"><span class="attribution" id="attribution" hidden></span><span class="asof" id="asOf"></span></div>
-              </div>
+        <div class="identity">
+          <div class="swap title-swap">
+            <div class="title-wrap">
+              <h1 class="game-title" id="gameTitle"></h1>
+              <svg class="swoosh" viewBox="0 0 400 24" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M2 13 C 60 5, 180 1, 398 3 C 396 7, 392 9, 380 10 C 300 12, 190 15, 70 20 C 40 22, 14 23, 5 22 C 1 20, 0 16, 2 13 Z"/>
+              </svg>
             </div>
-          </div>
-
-          <!-- three CRT readouts; labels sit inside the screens to save height -->
-          <div class="readouts">
-            <div class="readout" data-kind="loose">
-              <div class="crt"><div class="crt-glass"><span class="crt-label stencil">LOOSE</span><div class="swap"><span class="price" id="priceLoose"></span></div></div></div>
-            </div>
-            <div class="readout" data-kind="complete">
-              <div class="crt"><div class="crt-glass"><span class="crt-label stencil">COMPLETE</span><div class="swap"><span class="price" id="priceComplete"></span></div></div></div>
-            </div>
-            <div class="readout" data-kind="new">
-              <div class="crt"><div class="crt-glass"><span class="crt-label stencil">NEW</span><div class="swap"><span class="price" id="priceNew"></span></div></div></div>
-            </div>
+            <div class="console-name" id="consoleName"></div>
+            <div class="meta-line"><span class="attribution" id="attribution" hidden></span><span class="asof" id="asOf"></span></div>
           </div>
         </div>
-      </section>
+
+        <div class="divider" aria-hidden="true"></div>
+
+        <div class="readouts">
+          <div class="price-cell tag" data-kind="loose">
+            <div class="tag-header"><span class="price-label">Loose</span></div>
+            <div class="tag-body"><div class="swap"><span class="price" id="priceLoose"></span></div></div>
+          </div>
+          <div class="price-cell tag" data-kind="complete">
+            <div class="tag-header"><span class="price-label">Complete</span></div>
+            <div class="tag-body"><div class="swap"><span class="price" id="priceComplete"></span></div></div>
+          </div>
+          <div class="price-cell tag" data-kind="new">
+            <div class="tag-header"><span class="price-label">New</span></div>
+            <div class="tag-body"><div class="swap"><span class="price" id="priceNew"></span></div></div>
+          </div>
+        </div>
+      </div>
 
       <div class="demo-watermark" id="demoMark" hidden>
         <span class="demo-big">DEMO DATA</span>
-        <span class="demo-small">DEMO DATA · SAMPLE VALUES · NOT LIVE PRICES</span>
+        <span class="demo-small">DEMO · SAMPLE VALUES · NOT LIVE PRICES</span>
       </div>
     </div>
   </div>

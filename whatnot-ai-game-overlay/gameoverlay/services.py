@@ -14,7 +14,7 @@ import logging
 import time
 import uuid
 
-from .config import AppConfig, Environment, RuntimeSettings
+from .config import AppConfig, Environment, RuntimeSettings, migrate_settings
 from .db import Database
 from .logging_setup import set_level
 from .overlay.hub import OverlayHub
@@ -109,7 +109,13 @@ class Services:
     def _load_settings(self) -> RuntimeSettings:
         raw = self.db.get_setting(SETTINGS_KEY)
         try:
-            s = RuntimeSettings.model_validate(raw) if raw else RuntimeSettings()
+            if raw:
+                migrated = migrate_settings(raw)
+                s = RuntimeSettings.model_validate(migrated)
+                if migrated != raw:
+                    self.db.set_setting(SETTINGS_KEY, s.model_dump())
+            else:
+                s = RuntimeSettings()
         except Exception:
             log.error("stored settings were invalid; using defaults")
             s = RuntimeSettings()

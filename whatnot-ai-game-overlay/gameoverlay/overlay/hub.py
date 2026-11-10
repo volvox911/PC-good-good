@@ -133,6 +133,8 @@ class OverlayHub:
             "attribution": o.attribution_text,
             "showAttribution": o.show_attribution,
             "showRetrievalTime": o.show_retrieval_time,
+            "idlePanel": o.idle_panel,
+            "idleTitle": o.idle_title,
             "showProductLink": o.show_product_link,
             "reducedMotion": o.reduced_motion,
             "disconnectHideMs": int(self._display_settings().overlay_disconnect_hide_s * 1000),
