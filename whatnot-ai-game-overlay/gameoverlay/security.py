@@ -48,6 +48,25 @@ class Auth:
     def __init__(self, admin_token: str) -> None:
         self._token = admin_token
         self._key = hashlib.sha256(("wgo-session:" + admin_token).encode()).digest()
+        self._codes: dict[str, float] = {}
+
+    # One-time sign-in codes: the launcher opens /login?code=..., so the permanent admin
+    # token never appears in a URL or the browser history. Codes are single-use and expire.
+    def issue_code(self, ttl_s: float = 900.0, code: str | None = None) -> str:
+        code = code or secrets.token_urlsafe(24)
+        now = time.time()
+        self._codes = {c: exp for c, exp in self._codes.items() if exp > now}
+        self._codes[code] = now + ttl_s
+        return code
+
+    def redeem_code(self, code: str | None) -> bool:
+        if not code:
+            return False
+        for c in list(self._codes):
+            if hmac.compare_digest(c.encode(), code.encode()):
+                exp = self._codes.pop(c)  # single use
+                return exp > time.time()
+        return False
 
     def token_ok(self, candidate: str | None) -> bool:
         return bool(candidate) and hmac.compare_digest(candidate.encode(), self._token.encode())

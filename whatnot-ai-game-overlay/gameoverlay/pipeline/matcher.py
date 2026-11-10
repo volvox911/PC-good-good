@@ -308,7 +308,8 @@ class Matcher:
             if p is not None:
                 region, fam_base = family(p.console_name)
                 rec_region = rec.region if rec.region != "unknown" else cfg.default_region
-                if base is None or (fam_base == base and region == rec_region):
+                upc_title_ok = title_score(rec.title, split_edition(p.product_name)[0]) >= cfg.accept_score
+                if base is not None and upc_title_ok and fam_base == base and region == rec_region:
                     cand = Candidate(p.product_id, p.product_name, p.console_name)
                     if key:
                         self.remember(key, cand, "auto", 100.0)

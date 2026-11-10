@@ -12,7 +12,7 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 | Configuration | `.env`/env vars for bootstrap (dev/test/production + demo), validated runtime settings persisted in SQLite and editable in the dashboard. |
 | Credentials | Windows Credential Manager via `keyring` (env vars override; owner-only file fallback when no keyring exists). Write-only in the UI. |
 | Database | SQLite (WAL) with versioned migrations; price cache, match cache (auto + manual corrections), search cache, history, visual fingerprints, API usage, sessions (crash detection). |
-| PriceCharting | `/api/products` search, `/api/product` by id and UPC; exact field mapping; integer pennies → USD; global serialized queue ≥ 1.0 s (default 1.2 s); retries/backoff for 429/5xx/timeouts; auth errors not retried; strict response validation; token scrubbed from logs. |
+| PriceCharting | `/api/products` search, `/api/product` by id and UPC; exact field mapping; integer pennies → USD; global serialized queue ≥ 1.05 s (default 1.2 s); retries/backoff for 429/5xx/timeouts; auth errors not retried; strict response validation; token scrubbed from logs. |
 | OBS | Own obs-websocket v5 client (Hello/Identify/auth, requests), read-only allowlist, source discovery, `GetSourceScreenshot` of the camera input only, auto-reconnect with backoff. |
 | Detection | Localized motion + stability detector, periodic drift check, grid fingerprints (same item / new item / empty background), visual memory of earlier identifications, blur/brightness/contrast quality gate, burst capture, crop + rotation. |
 | Recognition | Anthropic SDK `beta.messages.parse` with a Pydantic schema (title, platform from PriceCharting's console vocabulary, region, edition, evidence, confidence, obscured flag, more-images flag), `claude-opus-5-5` at effort `low` (configurable), server-side refusal fallbacks, refusal → "not identified", prompt caching, per-session spend limit + requests/minute cap + cost estimates. |
@@ -20,7 +20,7 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 | State machine | Idle / Detecting / Recognizing / Matching / Price lookup / Displaying / Needs confirmation / Error / Paused; generation-based supersession; corroboration before replacing a game; minimum display time; unidentified/empty grace periods; display timeout; hold with "show new game"; rescan. |
 | Overlay | Wasteland Price-O-Matic visual in CSS/inline SVG; transparent background; portrait + landscape layouts; size/position presets; auto-fitting title and prices; `N/A`; footer attribution + `AS OF`; atomic ~300 ms panel swap; lamp breathing; reduced motion; read-only auto-reconnecting WebSocket; hides after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
 | Dashboard | Status, current item + evidence + suggestions, controls with keyboard shortcuts, manual search, UPC/barcode scanner, on-air and design previews, history + recall, settings (all thresholds, crop editor, background capture), first-run wizard. |
-| Security | 127.0.0.1-only bind by default, admin token → signed HttpOnly SameSite=Strict cookie, CSRF tokens, Host/Origin checks (DNS rebinding), strict CSP, public overlay limited to read-only data. |
+| Security | 127.0.0.1-only bind by default, one-time sign-in links (the permanent admin token is only ever POSTed, never put in URLs), signed HttpOnly SameSite=Strict session cookie, CSRF tokens, Host/Origin checks (DNS rebinding; overlay sockets too), strict CSP, public overlay limited to read-only data, admin token redacted from logs. |
 | Reliability | Engine loop never dies (errors are reported), structured JSON logs, graceful shutdown, crash detection on next start, auto-restart wrapper in `Start.cmd`, bounded memory structures, DB pruning. |
 | Windows | `Install.cmd` / `Start.cmd` / `Start-Demo.cmd` / `Run-Tests.cmd` (+ PowerShell scripts), desktop shortcuts, setup wizard. |
 | Demo mode | Fake OBS server (driven through the real OBS client), mock vision, mock PriceCharting (driven through the real rate-limited client), separate demo database, port 8766. |
@@ -29,8 +29,13 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 
 Run with `Run-Tests.cmd` (Windows) or `.venv/bin/python -m pytest -q && node --test "tests/js/*.test.mjs"`.
 
-- **Python: 175 passed** (includes 12 Playwright browser tests); 5 live tests skipped (opt-in, no credentials).
+- **Python: 190 passed**, 6 skipped — the skips are the 5 opt-in live tests (no credentials here)
+  and the opt-in docs-screenshot export. Includes 12 Playwright browser tests.
 - **JavaScript: 12 passed** (`node --test`).
+- **Real-time demo soak:** the demo server ran the full pipeline continuously for ~33 minutes
+  (fake OBS camera through the real WebSocket client, mock vision, mock PriceCharting through
+  the real rate-limited client) at ~2.6 % CPU and ~146–152 MB RSS. See section 8 for the
+  memory sampling after the review fixes.
 
 Coverage of the required test list:
 
@@ -114,12 +119,33 @@ without refresh, hide after long disconnect, reduced motion, watermark.
 - **No HTTPS** — by design the app only listens on 127.0.0.1.
 - **Docker** is not provided (not needed for normal use).
 
+## 5a. Independent code review (done before release) and fixes
+
+A separate reviewer read the critical paths without seeing this audit. All 12 findings were
+fixed; each high-severity one has a regression test that fails on the previous code:
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | A superseded job could still be shown if the on-air game returned before the other item's lookup finished. | The in-flight job is cancelled whenever its item leaves the camera; drift check also re-examines scenes that no longer match what's on air. |
+| 2 | Any manual pick (e.g. showing a product for a buyer) was learned as a correction. | Only suggestion picks / search picks with *This corrects the item on camera*, for the same item generation, are learned. |
+| 3 | Manual/recall selections taught visual memory. | Visual memory learns only from automatic identifications and explicit corrections. |
+| 4 | An overlay client that missed an update could keep an old record while heartbeats continued. | Evicted sockets are closed (client reconnects and resyncs); clients also resync when heartbeats report a newer state. |
+| 5 | Held/pending records skipped the freshness policy; releasing a hold left the held game up; on-air prices were never re-validated. | Pending records are re-priced on show; releasing a hold shows the pending game; on-air prices older than the cache duration are refreshed or taken off air. |
+| 6 | Cancelling one caller of a shared price fetch failed the others. | Shared fetches are service-owned tasks awaited through `asyncio.shield`. |
+| 7 | A legible UPC was accepted without a title cross-check. | UPC matches must agree with the printed title and console. |
+| 8 | The admin token appeared in URLs/browser history and wasn't redacted from logs. | One-time sign-in codes, POST token login, token added to log redaction. |
+| 9 | Rate limiter could start ~15 ms early on coarse timers. | Re-checks the clock after sleeping; hard floor 1.05 s. |
+| 10 | Cancelled Claude calls weren't counted toward the spend limit. | Recorded at the session's average (or projected) cost. |
+| 11 | Other web pages could exhaust overlay socket slots. | Overlay WebSocket rejects foreign Origins. |
+| 12 | Double-click on a manual pick returned HTTP 500. | Returns 409 "superseded". |
+
 ## 6. Exact start instructions
 
 1. Double-click `Install.cmd` (first time only).
 2. Double-click `Start.cmd` (live) — or `Start-Demo.cmd` (demo, port 8766).
-3. The dashboard opens automatically. If not, copy the *Operator dashboard* link printed in the
-   console window (or run `.venv\Scripts\python -m gameoverlay login-url`).
+3. The dashboard opens automatically (one-time link, valid 15 minutes). Later, open
+   `http://127.0.0.1:8765/login` and paste the token printed by
+   `.venv\Scripts\python -m gameoverlay login-url`.
 4. Keep the console window open during the show; Ctrl+C stops the app.
 
 ## 7. Exact OBS instructions (summary — full version in docs/OBS_SETUP.md)

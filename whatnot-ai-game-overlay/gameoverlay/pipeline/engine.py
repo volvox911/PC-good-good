@@ -167,6 +167,10 @@ class Engine:
         self._listeners: list[Callable[[], None]] = []
         self._capture_lock = asyncio.Lock()
         self._last_drift_check = 0.0
+        self._pending_fp: Fingerprint | None = None
+        self._age_task: asyncio.Task | None = None
+        self._last_age_attempt = 0.0
+        self._wall: Callable[[], float] = time.time  # wall clock for price ages (overridable in tests)
         self._load_background()
 
     # ------------------------------------------------------------------ lifecycle
@@ -177,7 +181,7 @@ class Engine:
 
     async def stop(self) -> None:
         self._running = False
-        for t in (self._job, self._loop_task):
+        for t in (self._job, self._loop_task, self._age_task):
             if t and not t.done():
                 t.cancel()
                 try:
@@ -244,6 +248,41 @@ class Engine:
         elif d.display_timeout_s > 0 and self._displayed_at and now - self._displayed_at >= d.display_timeout_s:
             self._hide("display timeout")
 
+    def _check_on_air_age(self) -> None:
+        """Never leave prices on air past the refresh interval without re-validating them."""
+        rec = self.hub.current if self.hub.visible else None
+        if rec is None or (self._age_task is not None and not self._age_task.done()):
+            return
+        if self._wall() - rec.retrieved_at < self.settings.pricing.price_refresh_s:
+            return
+        if time.monotonic() - self._last_age_attempt < 30:
+            return
+        self._last_age_attempt = time.monotonic()
+        self._age_task = asyncio.create_task(self._refresh_on_air(rec, self._generation), name="on-air-refresh")
+
+    async def _refresh_on_air(self, rec: VerifiedRecord, gen: int) -> None:
+        still_on_air = lambda: (  # noqa: E731
+            gen == self._generation and self.hub.visible and self.hub.current is not None
+            and self.hub.current.product_id == rec.product_id
+        )
+        try:
+            lookup = await self.pricing.get_prices(rec.product_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if still_on_air():
+                log.warning("on-air prices for %s could not be refreshed (%s); hiding", rec.product_id, e)
+                self.current.error = str(e)
+                self._hide("on-air prices expired and could not be refreshed")
+            return
+        if still_on_air():
+            new = VerifiedRecord.from_prices(lookup.prices, lookup.freshness, rec.source, demo=rec.demo)
+            if (new.loose_cents, new.cib_cents, new.new_cents, new.freshness, new.retrieved_at) != (
+                rec.loose_cents, rec.cib_cents, rec.new_cents, rec.freshness, rec.retrieved_at
+            ):
+                self.hub.show(new)
+                self._notify()
+
     def _hide(self, reason: str) -> None:
         log.info("hiding overlay: %s", reason)
         self.hub.hide(reason)
@@ -257,6 +296,7 @@ class Engine:
 
     async def _tick(self) -> None:
         self._check_timers()
+        self._check_on_air_age()
         s = self.settings
         self.detector.configure(s.detection.motion_threshold, s.detection.stable_frames_required)
         if not self.detection_enabled:
@@ -289,8 +329,16 @@ class Engine:
             # calm scene with the last stable fingerprint.
             self._last_drift_check = time.monotonic()
             fp = fingerprint(img)
+            thr = s.detection.change_threshold
             ref = self._last_stable_fp
-            if ref is not None and fingerprint_distance(fp, ref) >= s.detection.change_threshold:
+            moved = ref is not None and fingerprint_distance(fp, ref) >= thr
+            # Also re-check when the calm scene no longer matches what is on air (e.g. after a
+            # hold is released, or a superseded result). _on_stable ignores scenes already handled.
+            off_air = (
+                self.hub.visible and not self.pinned and self._displayed_fp is not None
+                and fingerprint_distance(fp, self._displayed_fp) >= thr
+            )
+            if moved or off_air:
                 await self._on_stable(fp)
 
     # ------------------------------------------------------------------ presentation logic
@@ -298,19 +346,26 @@ class Engine:
         d = self.settings.detection
         disp = self.settings.display
         self._last_stable_fp = fp
+        if self._job is not None and not self._job.done():
+            if self._job_fp is not None and fingerprint_distance(fp, self._job_fp) < d.change_threshold:
+                return  # still the item being identified
+            # The item being identified has left the camera: its result must never be shown.
+            self._bump_generation()
+            self._job_fp = None
+            if self.state in (PipelineState.RECOGNIZING, PipelineState.MATCHING, PipelineState.PRICE_LOOKUP):
+                self._set_state(PipelineState.DISPLAYING if self.hub.visible else PipelineState.DETECTING)
         if self._displayed_fp is not None and fingerprint_distance(fp, self._displayed_fp) < d.change_threshold:
             # The displayed game is still (or again) in front of the camera.
             self._hide_deadline = None
             self._empty_since = None
+            if self.hub.visible and self.state != PipelineState.DISPLAYING:
+                self._set_state(PipelineState.DISPLAYING)
             return
-        if self._job is not None and not self._job.done() and self._job_fp is not None:
-            if fingerprint_distance(fp, self._job_fp) < d.change_threshold:
-                return  # already working on this item
         if self._empty_fp is not None and fingerprint_distance(fp, self._empty_fp) < d.change_threshold:
             self._on_empty()
             return
         if self._last_attempt_fp is not None and fingerprint_distance(fp, self._last_attempt_fp) < d.change_threshold:
-            return  # same unidentifiable scene as last time: don't pay for another identical call
+            return  # same unidentifiable (or held) scene as last time: don't pay for another identical call
         # A clearly different item: start a job; keep the old record only for the grace period.
         if self.hub.visible and not self.pinned:
             self._hide_deadline = self._clock() + disp.unidentified_grace_s
@@ -552,8 +607,15 @@ class Engine:
         self._commit(gen, lookup, source, fp)
         cur.timings_ms["total"] = int((time.monotonic() - t_start) * 1000)
 
-    def _commit(self, gen: int, lookup: PriceLookup, source: str, fp) -> None:
+    def _commit(self, gen: int, lookup: PriceLookup, source: str, fp, remember_fp: Fingerprint | None = None) -> None:
+        """Put one product on air atomically.
+
+        ``fp`` is the scene fingerprint used for change detection. ``remember_fp`` (automatic
+        identifications and explicit operator corrections only) teaches visual memory.
+        """
         self._check_gen(gen)
+        if source == "auto" and remember_fp is None:
+            remember_fp = fp
         p = lookup.prices
         record = VerifiedRecord.from_prices(p, lookup.freshness, "demo" if self.demo and source == "auto" else source, demo=self.demo)
         cur = self.current
@@ -573,6 +635,8 @@ class Engine:
             return
         if self.pinned and source == "auto":
             self.pending_record = record
+            self._pending_fp = fp
+            self._last_attempt_fp = fp  # already handled: don't re-identify it every few seconds
             cur.status = f"Held — {p.product_name} resolved but not shown (overlay is held)"
             self._notify()
             return
@@ -583,9 +647,10 @@ class Engine:
         self._empty_since = None
         self._last_attempt_fp = None
         self.pending_record = None
+        self._pending_fp = None
         cur.status = f"Displaying {p.product_name} ({p.console_name})"
-        if self._displayed_fp is not None:
-            self._memory_store(self._displayed_fp, p.product_id)
+        if remember_fp is not None:
+            self._memory_store(remember_fp, p.product_id)
         self._add_history(record, p.console_name, source, lookup.freshness)
         self._set_state(PipelineState.DISPLAYING, None)
 
@@ -600,6 +665,9 @@ class Engine:
         return best if best is not None and best_d < thr else None
 
     def _memory_store(self, fp: Fingerprint, product_id: str) -> None:
+        for mfp, pid in list(self._memory)[-25:]:
+            if pid == product_id and fingerprint_distance(fp, mfp) < 0.03:
+                return  # already remembered (e.g. recognized via visual memory again)
         self._memory.append((fp, product_id))
         hx, hist = fp.to_record()
         self.db.execute(
@@ -716,26 +784,47 @@ class Engine:
             self._empty_since = None
         self._notify()
 
-    def show_pending(self) -> bool:
+    async def show_pending(self) -> bool:
+        """Show the game that was resolved while the overlay was held.
+
+        Prices are looked up again through the normal freshness policy, so a record that
+        waited a long time is never shown as current.
+        """
         rec = self.pending_record
         if rec is None:
             return False
-        self._bump_generation()
+        fp = self._pending_fp
+        gen = self._bump_generation()
         self.pinned = False
-        self.hub.show(rec)
-        self._displayed_at = self._clock()
         self.pending_record = None
-        self._displayed_fp = self._job_fp or self._last_stable_fp
-        self._set_state(PipelineState.DISPLAYING)
+        self._pending_fp = None
+        lookup = await self.pricing.get_prices(rec.product_id)
+        self._commit(gen, lookup, "auto", fp)
         return True
 
-    async def select_product(self, product_id: str, source: str = "manual", learn: bool = True) -> VerifiedRecord:
-        """Operator picked a product (search result, suggestion, UPC or history)."""
+    async def select_product(
+        self,
+        product_id: str,
+        source: str = "manual",
+        correction: bool = False,
+        generation: int | None = None,
+    ) -> VerifiedRecord:
+        """Operator picked a product (suggestion, search result, UPC or history).
+
+        Only an explicit *correction* of the item currently being identified teaches the
+        match cache and visual memory — and only if the dashboard was looking at that same
+        item (``generation``). Showing an arbitrary product for a buyer teaches nothing.
+        """
         pid = str(product_id).strip()
         if not pid.isdigit():
             raise ValueError("invalid product id")
+        learn = bool(
+            correction and source == "manual" and generation is not None
+            and generation == self.current.generation and self.current.match_key
+        )
+        key = self.current.match_key if learn else None
+        corrected_fp = self._job_fp if learn else None
         gen = self._bump_generation()
-        key = self.current.match_key
         cur = self.current
         cur.generation = gen
         cur.status = "Looking up selected product"
@@ -751,25 +840,27 @@ class Engine:
             raise
         self._check_gen(gen)
         p = lookup.prices
-        if learn and source == "manual" and key:
+        if key:
             self.matcher.remember(key, Candidate(p.product_id, p.product_name, p.console_name), "manual")
         cur.match = {"status": "matched", "via": source, "product": Candidate(p.product_id, p.product_name, p.console_name).to_dict(),
                      "score": None, "reason": f"selected by operator ({source})", "suggestions": (cur.match or {}).get("suggestions", [])}
         self.pinned = False
-        self._commit(gen, lookup, source, self._last_stable_fp)
+        self._commit(gen, lookup, source, self._last_stable_fp, remember_fp=corrected_fp)
+        if corrected_fp is not None:
+            self._displayed_fp = corrected_fp
         return self.hub.current
 
     async def lookup_upc(self, upc: str) -> VerifiedRecord:
         p = await self.pricing.lookup_upc(upc)
         if p is None:
             raise LookupError("no PriceCharting product for that UPC")
-        return await self.select_product(p.product_id, source="manual", learn=True)
+        return await self.select_product(p.product_id, source="manual")
 
     async def recall(self, history_id: int) -> VerifiedRecord:
         row = self.db.query_one("SELECT product_id FROM history WHERE id=?", (int(history_id),))
         if row is None:
             raise LookupError("history entry not found")
-        return await self.select_product(row["product_id"], source="recall", learn=False)
+        return await self.select_product(row["product_id"], source="recall")
 
     async def refresh_prices(self) -> VerifiedRecord | None:
         rec = self.hub.current

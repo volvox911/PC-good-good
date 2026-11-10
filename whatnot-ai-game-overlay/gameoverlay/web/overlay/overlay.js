@@ -235,6 +235,8 @@ let attempt = 0;
 let lastMsgAt = 0;
 let disconnectedAt = null;
 let reconnectTimer = null;
+let lastStateSeq = null;
+let seqMismatch = 0;
 
 function onState(msg) {
   if (msg.layout && typeof msg.layout === "object") layout = { ...layout, ...msg.layout };
@@ -271,7 +273,22 @@ function connect() {
     } catch {
       return;
     }
-    if (msg && msg.type === "state") onState(msg);
+    if (!msg) return;
+    if (msg.type === "state") {
+      lastStateSeq = msg.seq;
+      seqMismatch = 0;
+      onState(msg);
+    } else if (msg.type === "ping" && typeof msg.seq === "number") {
+      // Heartbeats carry the server's current state number. If we keep seeing a different
+      // one, we missed an update: reconnect to receive the full current state.
+      seqMismatch = msg.seq === lastStateSeq ? 0 : seqMismatch + 1;
+      if (seqMismatch >= 2) {
+        seqMismatch = 0;
+        try {
+          ws.close();
+        } catch {}
+      }
+    }
   };
   ws.onclose = () => {
     document.body.dataset.connection = "closed";

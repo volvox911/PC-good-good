@@ -17,8 +17,8 @@ scrubbed). Quick self-check: `.venv\Scripts\python -m gameoverlay check --live`.
 | Symptom | Fix |
 |---|---|
 | "Port 8765 is already in use" | The app is already running (check other console windows), or another program uses the port: `Start.cmd -Port 8770` and update the OBS URL. |
-| Lost the dashboard sign-in link | It is printed in the console at start, or run `.venv\Scripts\python -m gameoverlay login-url`. |
-| "Not signed in" after a long time | Sessions last 30 days; open the sign-in link again. |
+| Lost the dashboard sign-in link / "already used or has expired" | The one-time link works once within 15 minutes. Open `http://127.0.0.1:8765/login` and paste the access token printed by `.venv\Scripts\python -m gameoverlay login-url`. |
+| "Not signed in" after a long time | Sessions last 30 days; sign in again as above. |
 | App restarts by itself | `Start.cmd` restarts after unexpected exits; check the log for the cause. After 5 quick failures it stops and shows the exit code. |
 
 ## OBS
@@ -41,8 +41,10 @@ scrubbed). Quick self-check: `.venv\Scripts\python -m gameoverlay check --live`.
 |---|---|
 | Stays on "Waiting for a game" | Hold the game still ~1 s inside the presentation area. Raise *Motion sensitivity* (lower number) if your hand movements are subtle; lower *Calm samples* for faster triggering. *Scan now* (**S**) forces a recognition. |
 | "Image quality too low (blurry / too dark)" | Improve light, reduce glare, enable ZV-1 Product Showcase focus, tighten the crop. *Minimum sharpness* can be lowered slightly. |
-| Often **Needs confirmation** | Usually unreadable or obscured titles, missing console branding, or several close PriceCharting products. Show the label/spine clearly. Pick the right product (keys **1–9**) — the correction is remembered. Thresholds: *Auto-accept title score*, *Required lead*, *Minimum confidence*. |
-| Wrong edition/region | Editions (Player's Choice, Greatest Hits…) are only used when printed on the item; regions need visible evidence (ratings, PAL text). Correct it once — it is remembered for that recognition. *Default region* sets the fallback (NTSC-U). |
+| Often **Needs confirmation** | Usually unreadable or obscured titles, missing console branding, or several close PriceCharting products. Show the label/spine clearly. Pick the right product (keys **1–9**) — a suggestion pick is remembered as a correction. Thresholds: *Auto-accept title score*, *Required lead*, *Minimum confidence*. |
+| Wrong edition/region | Editions (Player's Choice, Greatest Hits…) are only used when printed on the item; regions need visible evidence (ratings, PAL text). Search for the right product with *This corrects the item on camera* ticked — it is remembered for that recognition. *Default region* sets the fallback (NTSC-U). |
+| Released the hold but the held game stayed up | If a new game was resolved while held, releasing shows it (after a fresh price check). Otherwise the next calm frame is re-checked automatically within a couple of seconds. |
+| Prices disappeared after a long time on air | On-air prices older than the cache duration are re-validated; if PriceCharting can't be reached they are taken off air rather than shown as current. |
 | Same game recognized again after re-posing | Expected when its image changed a lot; it costs one Claude call but no PriceCharting calls (cached) and the overlay doesn't flicker. Raise *New-item threshold* to make re-poses count as "same item". |
 | Old prices disappear while recognizing a new game | By design: a different, unidentified item hides the old game after *Hide old prices after unidentified item* (default 6 s). |
 | Claude: **not configured / auth failed** | Add/replace the key in *Settings → Credentials*. |

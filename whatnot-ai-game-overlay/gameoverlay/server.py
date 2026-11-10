@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, ValidationError
 from .config import AppConfig
 from .demo.sample import PREVIEW_VARIANTS
 from .obs.client import OBSError
+from .pipeline.engine import Superseded
 from .pricing.client import PriceChartingAuthError, PriceChartingError
 from .pricing.service import PriceUnavailable
 from .secrets_store import ALL_SECRETS
@@ -59,6 +60,10 @@ def _static(sub: str, name: str) -> FileResponse:
 
 class SelectBody(BaseModel):
     productId: str = Field(pattern=r"^\d{1,12}$")
+    # True when the operator is correcting the item currently being identified (suggestion
+    # list / "teach" checkbox). Only then is the choice remembered for future recognitions.
+    correction: bool = False
+    generation: int | None = None
 
 
 class UPCBody(BaseModel):
@@ -75,7 +80,7 @@ class SecretsBody(BaseModel):
     obs_password: str | None = Field(default=None, max_length=200)
 
 
-def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
+def create_app(config: AppConfig, services: Services | None = None, login_code: str | None = None) -> FastAPI:
     svc = services or Services(config)
 
     @asynccontextmanager
@@ -92,6 +97,8 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
     hosts = allowed_hosts(config.host, config.port)
     app.state.services = svc
     app.state.auth = Auth(svc.admin_token)
+    if login_code:
+        app.state.auth.issue_code(code=login_code)
     app.state.allowed_origins = allowed_origins(hosts)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(HostCheckMiddleware, hosts=(hosts | {"testserver"}) if config.env.value == "test" else hosts)
@@ -109,7 +116,7 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
 
     @app.websocket("/ws/overlay")
     async def overlay_ws(ws: WebSocket) -> None:
-        await svc.hub.handle_client(ws)
+        await svc.hub.handle_client(ws, app.state.allowed_origins)
 
     @app.get("/health")
     async def health() -> dict:
@@ -120,19 +127,33 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
     async def root() -> Response:
         return RedirectResponse("/dashboard", status_code=303)
 
+    def _signed_in() -> Response:
+        cookie, csrf = app.state.auth.new_session()
+        resp = RedirectResponse("/dashboard", status_code=303)
+        resp.set_cookie(SESSION_COOKIE, cookie, max_age=SESSION_MAX_AGE_S, httponly=True, samesite="strict", path="/")
+        resp.set_cookie(CSRF_COOKIE, csrf, max_age=SESSION_MAX_AGE_S, httponly=False, samesite="strict", path="/")
+        return resp
+
     @app.get("/login", response_class=HTMLResponse)
-    async def login(request: Request, token: str | None = None) -> Response:
-        auth: Auth = app.state.auth
-        if token is not None:
-            if not auth.token_ok(token):
+    async def login(request: Request, code: str | None = None) -> Response:
+        if code is not None:
+            if not app.state.auth.redeem_code(code):
                 await asyncio.sleep(0.5)
-                return HTMLResponse(_login_html("That access link is not valid."), status_code=401)
-            cookie, csrf = auth.new_session()
-            resp = RedirectResponse("/dashboard", status_code=303)
-            resp.set_cookie(SESSION_COOKIE, cookie, max_age=SESSION_MAX_AGE_S, httponly=True, samesite="strict", path="/")
-            resp.set_cookie(CSRF_COOKIE, csrf, max_age=SESSION_MAX_AGE_S, httponly=False, samesite="strict", path="/")
-            return resp
+                return HTMLResponse(_login_html("That one-time link was already used or has expired. Paste your access token below."), status_code=401)
+            return _signed_in()
         return HTMLResponse(_login_html(None))
+
+    @app.post("/login", response_class=HTMLResponse)
+    async def login_post(request: Request) -> Response:
+        # Form POST keeps the permanent token out of URLs, history and server logs.
+        from urllib.parse import parse_qs
+
+        body = (await request.body())[:4096].decode("utf-8", "replace")
+        token = (parse_qs(body).get("token") or [""])[0].strip()
+        if not app.state.auth.token_ok(token):
+            await asyncio.sleep(0.5)
+            return HTMLResponse(_login_html("That access token is not valid."), status_code=401)
+        return _signed_in()
 
     @app.post("/logout")
     async def logout(_: str = admin) -> Response:
@@ -225,11 +246,24 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
     @app.post("/api/overlay/hold")
     async def api_hold(body: HoldBody, _: str = admin) -> dict:
         svc.engine.hold(body.on)
-        return {"ok": True, "held": svc.engine.pinned}
+        shown_pending = False
+        if not body.on and svc.engine.pending_record is not None:
+            # Releasing the hold puts the game that is actually in front of the camera on air
+            # (with a fresh price check) instead of leaving the held game up.
+            try:
+                shown_pending = await svc.engine.show_pending()
+            except (PriceUnavailable, PriceChartingError, Superseded) as e:
+                raise HTTPException(502, f"could not show the pending game: {e}")
+        return {"ok": True, "held": svc.engine.pinned, "shownPending": shown_pending}
 
     @app.post("/api/overlay/show-pending")
     async def api_show_pending(_: str = admin) -> dict:
-        return {"ok": svc.engine.show_pending()}
+        try:
+            return {"ok": await svc.engine.show_pending()}
+        except (PriceUnavailable, PriceChartingError) as e:
+            raise HTTPException(502, str(e))
+        except Superseded:
+            raise HTTPException(409, "superseded by a newer action")
 
     @app.post("/api/prices/refresh")
     async def api_refresh(_: str = admin) -> dict:
@@ -256,9 +290,13 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
     @app.post("/api/select")
     async def api_select(body: SelectBody, _: str = admin) -> dict:
         try:
-            rec = await svc.engine.select_product(body.productId, source="manual")
+            rec = await svc.engine.select_product(
+                body.productId, source="manual", correction=body.correction, generation=body.generation
+            )
         except (PriceUnavailable, PriceChartingError) as e:
             raise HTTPException(502, str(e))
+        except Superseded:
+            raise HTTPException(409, "superseded by a newer selection")
         return {"ok": True, "record": rec.to_overlay_dict() if rec else None}
 
     @app.post("/api/upc")
@@ -271,6 +309,8 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
             raise HTTPException(422, str(e))
         except (PriceUnavailable, PriceChartingError) as e:
             raise HTTPException(502, str(e))
+        except Superseded:
+            raise HTTPException(409, "superseded by a newer selection")
         return {"ok": True, "record": rec.to_overlay_dict() if rec else None}
 
     @app.get("/api/history")
@@ -285,6 +325,8 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
             raise HTTPException(404, str(e))
         except (PriceUnavailable, PriceChartingError) as e:
             raise HTTPException(502, str(e))
+        except Superseded:
+            raise HTTPException(409, "superseded by a newer selection")
         return {"ok": True, "record": rec.to_overlay_dict() if rec else None}
 
     # -- background reference -----------------------------------------------------------------
@@ -370,11 +412,18 @@ def app_factory() -> FastAPI:
     from .logging_setup import setup_logging
     from .secrets_store import SecretStore
 
+    from .secrets_store import load_or_create_admin_token
+
     cfg = AppConfig()
     store = SecretStore(cfg.data_dir, use_keyring=not cfg.disable_keyring)
+    token = load_or_create_admin_token(cfg.data_dir)
     setup_logging("DEBUG" if cfg.env.value == "development" else cfg.log_level, cfg.log_dir,
-                  secret_source=store.known_values)
-    return create_app(cfg)
+                  secret_source=lambda: store.known_values() + [token])
+    import secrets as _secrets
+
+    code = _secrets.token_urlsafe(24)
+    print(f"  One-time dashboard link (dev reload): {cfg.base_url}/login?code={code}", flush=True)
+    return create_app(cfg, login_code=code)
 
 
 def _iso_now() -> str:
@@ -388,7 +437,7 @@ def _login_html(error: str | None) -> str:
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Operator Sign-in</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/dashboard/static/dashboard.css"></head>
 <body class="login"><main class="login-card"><h1>Price-O-Matic Operator</h1>
-<p>Open the dashboard with the one-click link printed by the launcher, or paste your access token.</p>{err}
-<form method="get" action="/login"><label>Access token<input name="token" type="password" autocomplete="off" required></label>
+<p>Open the dashboard with the one-time link printed by the launcher, or paste your access token.</p>{err}
+<form method="post" action="/login"><label>Access token<input name="token" type="password" autocomplete="off" required></label>
 <button type="submit">Sign in</button></form>
-<p class="hint">The token is stored in the app's data folder (<code>admin_token</code>).</p></main></body></html>"""
+<p class="hint">Show it with <code>.venv\\Scripts\\python -m gameoverlay login-url</code> (stored in the app's data folder as <code>admin_token</code>).</p></main></body></html>"""

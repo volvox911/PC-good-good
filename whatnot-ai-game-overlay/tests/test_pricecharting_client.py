@@ -123,8 +123,8 @@ async def test_persistent_outage_raises_unavailable(pc_client, mock_pc):
 
 async def test_never_exceeds_one_request_per_second(mock_pc, fake_clock):
     """Concurrent callers are serialized and spaced >= 1 s apart (even if misconfigured)."""
-    limiter = SerialRateLimiter(0.2, clock=fake_clock, sleep=fake_clock.sleep)  # clamps to 1.0
-    assert limiter.interval == 1.0
+    limiter = SerialRateLimiter(0.2, clock=fake_clock, sleep=fake_clock.sleep)  # clamps to 1.05
+    assert limiter.interval == 1.05
     mock_pc.clock = fake_clock
     client = PriceChartingClient(lambda: DEMO_TOKEN, limiter, transport=mock_pc.transport(), sleep=fake_clock.sleep)
     await asyncio.gather(*(client.product(pid) for pid in ["900101", "900102", "900103", "900201", "900202"] * 3))

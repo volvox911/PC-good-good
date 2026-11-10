@@ -136,7 +136,7 @@ async def test_hold_prevents_automatic_replacement(h):
     h.clock.t += 30
     await h.ticks(2)
     assert h.hub.visible, "held game is not auto-hidden"
-    assert h.engine.show_pending() is True
+    assert await h.engine.show_pending() is True
     assert h.hub.current.product_id == "900302"
 
 
@@ -146,7 +146,7 @@ async def test_manual_correction_is_learned(h):
     assert not h.hub.visible and h.engine.state == PipelineState.NEEDS_CONFIRMATION
     sugg = h.engine.current.match["suggestions"]
     assert any(s["productId"] == "900301" for s in sugg)
-    rec = await h.engine.select_product("900301")
+    rec = await h.engine.select_product("900301", correction=True, generation=h.engine.current.generation)
     assert rec.source == "manual" and h.hub.current.product_id == "900301"
     # Next time the same (low confidence) recognition maps straight to the corrected product.
     h.engine.clear_overlay()
@@ -284,3 +284,93 @@ async def test_long_session_200_games_bounded_resources(db):
         json.dumps(harness.engine.status(), default=str)
     finally:
         await harness.close()
+
+
+# ---------------------------------------------------------------- regression tests (code review)
+
+async def test_returning_to_on_air_game_cancels_other_items_job(h):
+    """Review #1: A on air, B starts a job, A comes back before B finishes -> B never shown."""
+    await h.present("900101")
+    h.recognizer.delay_for["900302"] = 0.5
+    await h.present("900302", settle=False)
+    assert h.engine._job is not None and not h.engine._job.done()
+    await h.present("900101", settle=False)  # back to the on-air game while B is in flight
+    await asyncio.sleep(0.8)
+    await h.ticks(4)
+    assert h.hub.current.product_id == "900101"
+    assert [r.product_id for r in h.shown] == ["900101"]
+
+
+async def test_plain_manual_pick_does_not_rebind_recognition(h):
+    """Review #2: showing a product for a buyer is not a correction."""
+    await h.present("900101")
+    await h.engine.select_product("900302")  # no correction flag
+    h.engine.clear_overlay()
+    h.engine.forget_visual_memory()
+    await h.present("900101")
+    assert h.hub.current.product_id == "900101"
+
+
+async def test_stale_correction_generation_is_not_learned(h):
+    h.recognizer.overrides["900301"] = {"confidence": "low"}
+    await h.present("900301")
+    stale_gen = h.engine.current.generation - 1
+    await h.engine.select_product("900302", correction=True, generation=stale_gen)
+    h.engine.clear_overlay()
+    h.engine.forget_visual_memory()
+    await h.present("900301")
+    assert h.engine.state == PipelineState.NEEDS_CONFIRMATION, "stale correction must not be remembered"
+
+
+async def test_recall_does_not_poison_visual_memory(h):
+    """Review #3: recalling another game while an ambiguous item is on camera."""
+    await h.present("900401")
+    hist = h.engine.history()
+    h.recognizer.overrides["900301"] = {"confidence": "low"}
+    await h.present("900301")
+    assert h.engine.state == PipelineState.NEEDS_CONFIRMATION
+    await h.engine.recall(hist[0]["id"])  # Resident Evil, not the item on camera
+    h.engine.clear_overlay()
+    calls = h.recognizer.calls
+    await h.present("900301")
+    assert h.recognizer.calls == calls + 1, "must re-identify, not reuse the recalled product"
+    assert h.engine.state == PipelineState.NEEDS_CONFIRMATION
+
+
+async def test_releasing_hold_shows_pending_with_price_check(h):
+    """Review #5: pending record goes through the freshness policy when shown."""
+    await h.present("900101")
+    h.engine.hold(True)
+    await h.present("900302")
+    assert h.engine.pending_record.product_id == "900302"
+    h.db.execute("UPDATE price_cache SET retrieved_at = retrieved_at - 7200 WHERE product_id='900302'")
+    h.mock_pc.fail_next = [500] * 20
+    from gameoverlay.pricing.service import PriceUnavailable
+
+    with pytest.raises(PriceUnavailable):
+        await h.engine.show_pending()
+    assert h.hub.current.product_id == "900101", "stale pending prices must not go on air"
+
+
+async def test_on_air_prices_are_revalidated_when_they_expire(h):
+    await h.present("900101")
+    import time as _t
+
+    h.engine._wall = lambda: _t.time() + 7200  # an hour+ later
+    h.db.execute("UPDATE price_cache SET retrieved_at = retrieved_at - 7200")
+    h.mock_pc.fail_next = [500] * 20
+    await h.ticks(1)
+    await asyncio.wait_for(h.engine._age_task, 5)
+    assert not h.hub.visible, "expired prices that cannot be refreshed are taken off air"
+
+
+async def test_on_air_prices_refresh_in_place(h):
+    await h.present("900101")
+    import time as _t
+
+    h.engine._wall = lambda: _t.time() + 7200
+    h.db.execute("UPDATE price_cache SET retrieved_at = retrieved_at - 7200")
+    h.mock_pc.catalog["900101"]["loose-price"] = 4999
+    await h.ticks(1)
+    await asyncio.wait_for(h.engine._age_task, 5)
+    assert h.hub.current.product_id == "900101" and h.hub.current.loose_cents == 4999

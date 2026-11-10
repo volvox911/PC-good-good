@@ -32,7 +32,7 @@ def live(tmp_path, monkeypatch):
 
 
 def login(client):
-    r = client.get(f"/login?token={client.svc.admin_token}", follow_redirects=False)
+    r = client.post("/login", data={"token": client.svc.admin_token}, follow_redirects=False)
     assert r.status_code == 303
     return client.cookies.get("wgo_csrf")
 
@@ -72,13 +72,32 @@ def test_dashboard_redirects_to_login(live):
 
 
 def test_bad_token_rejected(live):
-    r = live.get("/login?token=nope", follow_redirects=False)
+    r = live.post("/login", data={"token": "nope"}, follow_redirects=False)
     assert r.status_code == 401
     assert "wgo_session" not in live.cookies
 
 
-def test_login_sets_httponly_strict_cookie(live):
+def test_token_is_never_accepted_in_url(live):
     r = live.get(f"/login?token={live.svc.admin_token}", follow_redirects=False)
+    assert r.status_code == 200 and "wgo_session" not in live.cookies  # just the sign-in form
+
+
+def test_one_time_code_is_single_use(live):
+    code = live.app.state.auth.issue_code()
+    r = live.get(f"/login?code={code}", follow_redirects=False)
+    assert r.status_code == 303 and "wgo_session" in live.cookies
+    live.cookies.clear()
+    r2 = live.get(f"/login?code={code}", follow_redirects=False)
+    assert r2.status_code == 401 and "wgo_session" not in live.cookies
+
+
+def test_expired_code_rejected(live):
+    code = live.app.state.auth.issue_code(ttl_s=-1)
+    assert live.get(f"/login?code={code}", follow_redirects=False).status_code == 401
+
+
+def test_login_sets_httponly_strict_cookie(live):
+    r = live.post("/login", data={"token": live.svc.admin_token}, follow_redirects=False)
     cookies = r.headers.get_list("set-cookie")
     sess = next(c for c in cookies if c.startswith("wgo_session="))
     assert "HttpOnly" in sess and "SameSite=strict" in sess
@@ -164,6 +183,14 @@ def test_dashboard_ws_rejects_foreign_origin(live):
     with pytest.raises(WebSocketDisconnect):
         with live.websocket_connect("/ws/dashboard", headers={"origin": "http://evil.example"}) as ws:
             ws.receive_text()
+
+
+def test_overlay_ws_rejects_foreign_origin(live):
+    with pytest.raises(WebSocketDisconnect):
+        with live.websocket_connect("/ws/overlay", headers={"origin": "http://evil.example"}) as ws:
+            ws.receive_text()
+    with live.websocket_connect("/ws/overlay", headers={"origin": "http://127.0.0.1:8765"}) as ws:
+        assert ws.receive_json()["type"] == "state"
 
 
 def test_overlay_ws_is_read_only_and_starts_empty(live):

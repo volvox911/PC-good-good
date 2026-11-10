@@ -35,7 +35,7 @@ Single local Python process (FastAPI + asyncio) — no Docker, no cloud hosting,
 | `pipeline/matcher.py` | Candidate validation: platform family + region, title similarity with significant numbers, edition adjustments, margins, match cache (manual corrections win). |
 | `pipeline/engine.py` | Recognition state machine and operator actions. |
 | `overlay/hub.py` | Overlay state + read-only WebSocket broadcaster. |
-| `security.py` | Host check (DNS rebinding), signed session cookies, CSRF, Origin checks, CSP/security headers. |
+| `security.py` | Host check (DNS rebinding), one-time sign-in codes, signed session cookies, CSRF, Origin checks, CSP/security headers. |
 | `server.py` | Routes. `services.py` wires live vs. demo components. `__main__.py` CLI. |
 | `demo/` | Fake OBS server, mock PriceCharting transport, mock vision, scene renderer, demo world, preview samples. |
 | `web/overlay/` | `index.html`, `overlay.css` (all visuals), `overlay-core.js` (pure logic), `overlay.js` (DOM, WebSocket, transitions). |
@@ -72,6 +72,13 @@ Single local Python process (FastAPI + asyncio) — no Docker, no cloud hosting,
 8. Secrets never reach browser clients, URLs (except the token-in-query to pricecharting.com
    itself) or logs.
 9. The OBS client cannot send state-changing requests.
+10. When the item being identified leaves the camera (including when the on-air game returns),
+    its job is cancelled before it can commit.
+11. Only automatic identifications and explicit operator corrections of the current item teach
+    the match cache / visual memory; buyer requests, UPC lookups and recalls never do.
+12. Records shown after a hold, and records left on air past the price cache duration, are
+    re-validated through the freshness policy first.
+13. An overlay client that misses an update is disconnected so it reconnects and resyncs.
 
 ## Data flow of a record (wire format to the overlay)
 

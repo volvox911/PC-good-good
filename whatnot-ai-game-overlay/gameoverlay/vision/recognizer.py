@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import time
@@ -156,6 +157,10 @@ class ClaudeRecognizer:
         t0 = time.monotonic()
         try:
             resp = await client.beta.messages.parse(**kwargs)
+        except asyncio.CancelledError:
+            # A superseded job may still be billed by the API: count it conservatively.
+            self.usage.record_cancelled(cfg.model)
+            raise
         except anthropic.AuthenticationError:
             return self._fail("auth_error", "Anthropic rejected the API key", cfg, t0, len(images))
         except anthropic.PermissionDeniedError:

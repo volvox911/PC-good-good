@@ -88,7 +88,9 @@ OBS GetSourceScreenshot (camera input only — never program output, so the over
 - A newer presentation cancels older lookups; late/out-of-order responses are discarded.
 - Replacing a high-confidence game requires corroboration from a second frame.
 - If a different item can't be identified, the old prices disappear after a grace period.
-- Operator corrections are remembered: the same recognition maps to your chosen product next time.
+- Operator corrections are remembered: picking a suggestion (or a search result with *This
+  corrects the item on camera* ticked) maps the same recognition to your product next time.
+  Showing some other product for a buyer, a UPC lookup or a history recall teaches nothing.
 
 ## Pricing rules (enforced in code and tests)
 
@@ -101,7 +103,7 @@ OBS GetSourceScreenshot (camera input only — never program output, so the over
 - Integer pennies converted exactly: `4295 → $42.95`. Retail buy/sell, graded and
   box/manual-only prices are never substituted.
 - Every PriceCharting request goes through one serialized queue: **never more than one request
-  per second** (default spacing 1.2 s; cannot be set below 1.0 s), with backoff on 429/5xx.
+  per second** (default spacing 1.2 s; never below 1.05 s), with backoff on 429/5xx.
 - Prices, matches and searches are cached separately (SQLite). Cached prices older than the
   refresh interval (default 1 h) are refreshed before display; if the refresh fails they are
   **hidden** (default) or shown labeled `CACHED` (optional, bounded by a maximum age).
@@ -110,8 +112,10 @@ OBS GetSourceScreenshot (camera input only — never program output, so the over
 
 ## Operator dashboard (private)
 
-Opened automatically by `Start.cmd` (one-click sign-in link; also printed in the console and
-available via `.venv\Scripts\python -m gameoverlay login-url`).
+Opened automatically by `Start.cmd` with a **one-time sign-in link** (also printed in the
+console; valid 15 minutes, usable once). Later, open `http://127.0.0.1:8765/login` and paste
+your access token, shown by `.venv\Scripts\python -m gameoverlay login-url`. The permanent
+token never appears in URLs or browser history; sessions last 30 days.
 
 - Live status: OBS, camera source, Claude, PriceCharting, detection, overlay (and how many OBS
   browser sources are connected), estimated Claude spend vs. your session limit.
@@ -126,8 +130,9 @@ available via `.venv\Scripts\python -m gameoverlay login-url`).
 ## Security
 
 - Binds to `127.0.0.1` only (refuses other addresses unless you explicitly override).
-- Overlay endpoints are public **read-only**; everything else needs the local admin session
-  (HttpOnly SameSite=Strict cookie, CSRF token, Host/Origin checks against DNS rebinding).
+- Overlay endpoints are public **read-only** (other web pages cannot open overlay sockets);
+  everything else needs the local admin session (HttpOnly SameSite=Strict cookie, CSRF token,
+  Host/Origin checks against DNS rebinding).
 - API keys/passwords live in Windows Credential Manager (or env vars) and are never sent to any
   browser, logged, or stored in the project folder. Logs scrub tokens automatically.
 - The OBS client can only send read-only requests (it cannot start/stop streams or change scenes).

@@ -148,3 +148,23 @@ async def test_untrusted_output_is_sanitized(db, settings):
     out = await r.recognize([frame()])
     assert "\n" not in out.result.title and len(out.result.title) <= 200
     assert out.result.upc_digits == "045496830434"
+
+
+async def test_cancelled_call_still_counts_toward_spend(db, settings):
+    """Review #10."""
+    import asyncio
+
+    async def slow(**kw):
+        await asyncio.sleep(10)
+
+    usage = UsageTracker(db, "s1", lambda: settings)
+    fake = FakeClient(lambda kw: None)
+    fake.beta.messages.parse = slow
+    r = ClaudeRecognizer(lambda: "sk-ant-test", lambda: settings, usage, client_factory=lambda k, c: fake)
+    t = asyncio.create_task(r.recognize([frame()]))
+    await asyncio.sleep(0.05)
+    t.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await t
+    snap = usage.snapshot()
+    assert snap.requests == 1 and snap.cost_usd > 0

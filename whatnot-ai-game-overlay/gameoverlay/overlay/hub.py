@@ -151,7 +151,11 @@ class OverlayHub:
         }
 
     # -- websocket -------------------------------------------------------------------------
-    async def handle_client(self, ws: WebSocket) -> None:
+    async def handle_client(self, ws: WebSocket, allowed_origins: set[str] | None = None) -> None:
+        origin = ws.headers.get("origin")
+        if allowed_origins is not None and origin and origin not in allowed_origins:
+            await ws.close(1008)  # other web pages in the streamer's browser may not hog slots
+            return
         if len(self._clients) >= MAX_CLIENTS:
             await ws.close(1013)
             return
@@ -175,9 +179,20 @@ class OverlayHub:
 
     async def _heartbeat(self, ws: WebSocket) -> None:
         try:
-            while True:
+            while ws in self._clients:
                 await asyncio.sleep(HEARTBEAT_S)
+                if ws not in self._clients:
+                    break
                 await self._send(ws, {"type": "ping", "seq": self.seq, "serverTime": time.time()})
+        except Exception:
+            await self._evict(ws)
+
+    async def _evict(self, ws: WebSocket) -> None:
+        """Drop a client that missed an update and CLOSE it, so the overlay reconnects and
+        receives the full current state (instead of silently keeping an old record)."""
+        self._clients.discard(ws)
+        try:
+            await asyncio.wait_for(ws.close(1011), 1.0)
         except Exception:
             pass
 
@@ -196,5 +211,5 @@ class OverlayHub:
                 except Exception:
                     dead.append(ws)
             for ws in dead:
-                self._clients.discard(ws)
+                await self._evict(ws)
             self.broadcasts += 1

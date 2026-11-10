@@ -170,6 +170,7 @@ code { background: #101113; padding: 2px 6px; border-radius: 5px; }
 .big.on { background: #4a3a10; border-color: var(--accent); }
 .search { margin-top: 10px; }
 .search label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.search label.teach { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .row { display: flex; gap: 6px; }
 .row input { flex: 1; }
 .results { margin-top: 8px; max-height: 300px; overflow: auto; }

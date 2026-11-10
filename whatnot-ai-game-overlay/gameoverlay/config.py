@@ -193,8 +193,8 @@ class RecognitionSettings(BaseModel):
 
 
 class PricingSettings(BaseModel):
-    # PriceCharting allows at most 1 call per second. Never below 1.0.
-    min_request_interval_s: float = Field(default=1.2, ge=1.0, le=60.0)
+    # PriceCharting allows at most 1 call per second. Never below 1.05 (safety margin).
+    min_request_interval_s: float = Field(default=1.2, ge=1.05, le=60.0)
     request_timeout_s: float = Field(default=10.0, ge=2.0, le=60.0)
     max_retries: int = Field(default=3, ge=0, le=6)
     price_refresh_s: int = Field(default=3600, ge=60, le=7 * 24 * 3600)

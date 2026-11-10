@@ -97,6 +97,8 @@ class PricingService:
             return PriceLookup(cached, "cached", refreshed=False)
         try:
             fresh = await self._fetch_dedup(pid)
+        except asyncio.CancelledError:
+            raise
         except PriceChartingError as e:
             if (
                 cached is not None
@@ -106,28 +108,33 @@ class PricingService:
                 log.warning("price refresh failed for %s; showing labeled stale cache: %s", pid, e)
                 return PriceLookup(cached, "stale", refreshed=False)
             raise PriceUnavailable(f"price refresh failed: {e}", stale=cached) from e
-        self.store_prices(fresh)
         return PriceLookup(fresh, "fresh", refreshed=True)
 
     async def _fetch_dedup(self, pid: str) -> ProductPrices:
-        fut = self._inflight.get(pid)
-        if fut is not None:
-            return await asyncio.shield(fut)
-        loop = asyncio.get_running_loop()
-        fut = loop.create_future()
-        self._inflight[pid] = fut
-        try:
-            result = await self.client.product(pid)
-        except BaseException as e:
-            if not fut.done():
-                fut.set_exception(e if isinstance(e, Exception) else PriceChartingError("cancelled"))
-                fut.exception()  # mark retrieved
-            raise
-        else:
-            fut.set_result(result)
-            return result
-        finally:
-            self._inflight.pop(pid, None)
+        """One shared fetch per product, owned by the service.
+
+        Concurrent callers await the same task through ``asyncio.shield``: cancelling one
+        caller (e.g. a superseded recognition job) never cancels the fetch for the others,
+        and a completed fetch is cached even if every caller went away.
+        """
+        task = self._inflight.get(pid)
+        if task is None or task.done():
+            task = asyncio.create_task(self._fetch_and_store(pid), name=f"pc-fetch-{pid}")
+            self._inflight[pid] = task
+
+            def _done(t: asyncio.Task, pid: str = pid) -> None:
+                if self._inflight.get(pid) is t:
+                    self._inflight.pop(pid, None)
+                if not t.cancelled():
+                    t.exception()  # mark retrieved; callers re-raise it themselves
+
+            task.add_done_callback(_done)
+        return await asyncio.shield(task)
+
+    async def _fetch_and_store(self, pid: str) -> ProductPrices:
+        p = await self.client.product(pid)
+        self.store_prices(p)
+        return p
 
     async def lookup_upc(self, upc: str) -> ProductPrices | None:
         p = await self.client.product_by_upc(upc)

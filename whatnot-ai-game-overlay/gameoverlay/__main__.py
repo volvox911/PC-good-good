@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import getpass
 import os
+import secrets
 import sys
 import threading
 import time
@@ -36,10 +37,10 @@ def _config(args) -> AppConfig:
     return AppConfig(**overrides)
 
 
-def _login_url(cfg: AppConfig) -> str:
+def _admin_token(cfg: AppConfig) -> str:
     from .secrets_store import load_or_create_admin_token
 
-    return f"{cfg.base_url}/login?token={load_or_create_admin_token(cfg.data_dir)}"
+    return load_or_create_admin_token(cfg.data_dir)
 
 
 def cmd_serve(args) -> int:
@@ -49,17 +50,25 @@ def cmd_serve(args) -> int:
     from .secrets_store import SecretStore
 
     store = SecretStore(cfg.data_dir, use_keyring=not cfg.disable_keyring)
+    token = _admin_token(cfg)
     level = "DEBUG" if cfg.env == Environment.DEVELOPMENT else cfg.log_level
-    setup_logging(level, cfg.log_dir, json_console=False, secret_source=store.known_values)
+    setup_logging(level, cfg.log_dir, json_console=False, secret_source=lambda: store.known_values() + [token])
 
     from .server import create_app
 
+    if args.reload:
+        code_url = "(printed by the reloading server below)"
+    else:
+        code = secrets.token_urlsafe(24)
+        code_url = f"{cfg.base_url}/login?code={code}"
     print(f"\n  Whatnot AI Game Overlay v{__version__}  —  {'DEMO MODE (sample data)' if cfg.demo else 'LIVE MODE'}")
     print(f"  OBS Browser Source URL : {cfg.base_url}/overlay")
-    print(f"  Operator dashboard     : {_login_url(cfg)}")
-    print("  (keep the dashboard link private; press Ctrl+C to stop)\n")
-    if args.open:
-        threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(_login_url(cfg))), daemon=True).start()
+    print(f"  Operator dashboard     : {code_url}")
+    print("  (one-time sign-in link, valid 15 minutes; afterwards open")
+    print(f"   {cfg.base_url}/login and paste the token from 'python -m gameoverlay login-url')")
+    print("  Press Ctrl+C to stop.\n")
+    if args.open and not args.reload:
+        threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(code_url)), daemon=True).start()
     if args.reload:
         os.environ["WGO_ENV"] = cfg.env.value
         os.environ["WGO_PORT"] = str(cfg.port)
@@ -69,7 +78,7 @@ def cmd_serve(args) -> int:
         uvicorn.run("gameoverlay.server:app_factory", factory=True, host=cfg.host, port=cfg.port, reload=True,
                     log_config=None, ws_max_size=1 << 20)
         return 0
-    app = create_app(cfg)
+    app = create_app(cfg, login_code=code)
     uvicorn.run(app, host=cfg.host, port=cfg.port, log_config=None, ws_max_size=1 << 20, timeout_graceful_shutdown=5)
     return 0
 
@@ -84,12 +93,14 @@ def cmd_init(args) -> int:
     db.close()
     print(f"Data directory : {cfg.data_dir}")
     print(f"Database       : {cfg.db_path} (schema v{v})")
-    print(f"Dashboard link : {_login_url(cfg)}")
+    print(f"Dashboard      : {cfg.base_url}/login  (Start.cmd opens it with a one-time link)")
     return 0
 
 
 def cmd_login_url(args) -> int:
-    print(_login_url(_config(args)))
+    cfg = _config(args)
+    print(f"Open {cfg.base_url}/login and paste this access token (keep it private):")
+    print(_admin_token(cfg))
     return 0
 
 

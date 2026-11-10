@@ -159,3 +159,12 @@ async def test_manual_correction_overrides_and_persists(matcher):
     # an automatic match can never overwrite a manual correction
     matcher.remember(first.key, Candidate("900302", "Mortal Kombat", "Super Nintendo"), "auto")
     assert (await matcher.resolve(r)).product.product_id == "900301"
+
+
+async def test_upc_with_mismatching_title_is_not_auto_accepted(matcher, mock_pc):
+    """Review #7: a misread/foreign barcode must agree with the printed title."""
+    mock_pc.catalog["900301"]["upc"] = "045496830434"  # valid check digit, Mortal Kombat Genesis
+    r = await matcher.resolve(rec("Sonic the Hedgehog 2", "Sega Genesis", upc_digits="045496830434"))
+    assert r.product is None or r.product.product_id != "900301"
+    r2 = await matcher.resolve(rec("Mortal Kombat", "Sega Genesis", upc_digits="045496830434"))
+    assert r2.status == "matched" and r2.via == "upc"

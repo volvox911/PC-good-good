@@ -111,3 +111,20 @@ async def test_local_suggestions_need_no_api(svc, mock_pc, wall, monkeypatch):
     sug = svc.local_suggestions("resident")
     assert [c.product_id for c in sug] == ["900401"]
     assert len(mock_pc.calls) == n
+
+
+async def test_cancelling_one_caller_does_not_fail_the_others(svc, mock_pc, wall, monkeypatch):
+    """Review #6: a superseded job's cancellation must not break a concurrent manual pick."""
+    import asyncio
+    import time as _time
+
+    monkeypatch.setattr(_time, "time", lambda: wall.t)
+    mock_pc.delay_s = 0.2
+    first = asyncio.create_task(svc.get_prices("900302"))
+    await asyncio.sleep(0.05)
+    second = asyncio.create_task(svc.get_prices("900302"))
+    await asyncio.sleep(0.01)
+    first.cancel()
+    r = await second
+    assert r.prices.product_id == "900302"
+    assert svc.cached_prices("900302") is not None

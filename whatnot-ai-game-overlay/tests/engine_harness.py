@@ -99,10 +99,13 @@ class Harness:
         self.recognizer = WorldRecognizer(self.camera)
         self.mock_pc = MockPriceCharting()
 
+        limiter_t = [0.0]
+
         async def no_sleep(s):
+            limiter_t[0] += max(0.0, s)  # fake time advances instantly
             await asyncio.sleep(0)
 
-        self.limiter = SerialRateLimiter(1.0, clock=lambda: 0.0, sleep=no_sleep)
+        self.limiter = SerialRateLimiter(1.0, clock=lambda: limiter_t[0], sleep=no_sleep)
         self.pc = PriceChartingClient(lambda: DEMO_TOKEN, self.limiter, transport=self.mock_pc.transport(), sleep=no_sleep)
         self.pricing = PricingService(self.pc, db, lambda: self.settings.pricing)
         self.matcher = Matcher(self.pricing, db, lambda: self.settings.recognition)

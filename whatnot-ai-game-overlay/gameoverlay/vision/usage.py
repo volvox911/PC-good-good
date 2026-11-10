@@ -115,6 +115,20 @@ class UsageTracker:
             raise RequestRateExceeded("Claude request rate limit (per minute) reached")
         self._recent.append(now)
 
+    def record_cancelled(self, model: str) -> float:
+        """Account for a request abandoned mid-flight (tokens unknown): use the session's
+        average successful cost, or the conservative projection if there is none yet."""
+        row = self.db.query_one(
+            "SELECT AVG(cost_usd) AS a FROM api_usage WHERE session_id=? AND provider='anthropic' AND status='ok'",
+            (self.session_id,),
+        )
+        cost = float(row["a"]) if row and row["a"] else PROJECTED_REQUEST_COST_USD
+        self.db.execute(
+            "INSERT INTO api_usage(session_id, provider, model, cost_usd, status, created_at) VALUES (?,?,?,?,?,?)",
+            (self.session_id, "anthropic", model, cost, "cancelled", self._clock()),
+        )
+        return cost
+
     def record(
         self,
         model: str,

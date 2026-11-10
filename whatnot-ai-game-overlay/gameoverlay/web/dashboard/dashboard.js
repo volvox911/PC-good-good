@@ -80,6 +80,7 @@ let lastFrameGen = -1;
 let lastHistorySeq = -1;
 let suggestions = [];
 let searchResults = [];
+let lastEngineState = null;
 
 const fmtTime = (ts) => (ts ? new Date(ts * 1000).toLocaleTimeString() : "—");
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
@@ -199,6 +200,12 @@ function renderCurrent(s) {
   if (cur.stalePrices) fr.append(h("div", { class: "hint", text: `Stale cached prices (NOT shown on air): ${cur.stalePrices.loose} / ${cur.stalePrices.complete} / ${cur.stalePrices.new} from ${fmtDate(cur.stalePrices.retrievedAt)}` }));
   if (cur.error) fr.append(h("div", { class: "hint", text: `Error: ${cur.error}` }));
 
+  // corrections: pre-tick "teach" while the pipeline is asking for confirmation
+  if (eng.state !== lastEngineState) {
+    $("teachChk").checked = eng.state === "needs_confirmation";
+    lastEngineState = eng.state;
+  }
+
   // suggestions (needs confirmation)
   suggestions = (m && m.suggestions) || [];
   const wrap = $("suggestionsWrap");
@@ -208,7 +215,7 @@ function renderCurrent(s) {
     $("suggestions").replaceChildren(
       ...suggestions.slice(0, 9).map((sg, i) =>
         h("li", { class: sg.platformMatch && sg.regionMatch ? "eligible" : "" },
-          h("button", { onclick: () => selectProduct(sg.productId) },
+          h("button", { onclick: () => selectProduct(sg.productId, true) },
             h("span", { class: "n", text: String(i + 1) }),
             h("span", {}, sg.productName, h("div", { class: "meta", text: sg.consoleName })),
             h("span", { class: "meta", text: `${sg.score}` }))),
@@ -255,8 +262,9 @@ function renderStatus(s) {
 }
 
 // ------------------------------------------------------------------ actions
-async function selectProduct(pid) {
-  const r = await act(() => api("/api/select", { method: "POST", body: { productId: pid } }));
+async function selectProduct(pid, correction = false) {
+  const generation = status ? status.engine.current.generation : null;
+  const r = await act(() => api("/api/select", { method: "POST", body: { productId: pid, correction, generation } }));
   if (r && r.record) toast(`On air: ${r.record.title}`);
   $("searchResults").replaceChildren();
 }
@@ -274,7 +282,7 @@ async function doSearch(q) {
   const seen = new Set();
   searchResults = [...r.local, ...r.remote].filter((c) => (seen.has(c.productId) ? false : seen.add(c.productId)));
   const items = searchResults.slice(0, 20).map((c, i) =>
-    h("li", {}, h("button", { onclick: () => selectProduct(c.productId) },
+    h("li", {}, h("button", { onclick: () => selectProduct(c.productId, $("teachChk").checked) },
       h("span", { class: "n", text: i < 9 ? String(i + 1) : "" }),
       h("span", {}, c.productName, h("div", { class: "meta", text: c.consoleName })),
       h("span", { class: "meta", text: `#${c.productId}` }))));
@@ -398,7 +406,7 @@ const SETTINGS_TABS = {
     { path: "pricing.price_refresh_s", label: "Price cache duration (s)", type: "number", min: 60, max: 604800, step: 60, help: "Cached prices older than this are refreshed before display (default 3600 = 1 hour)." },
     { path: "pricing.stale_policy", label: "If a refresh fails", type: "select", options: ["hide", "show_labeled"], help: "hide = never show stale prices; show_labeled = show with a CACHED label (up to the max age)." },
     { path: "pricing.max_stale_s", label: "Max age for labeled stale prices (s)", type: "number", min: 60, max: 2592000, step: 60 },
-    { path: "pricing.min_request_interval_s", label: "Seconds between PriceCharting requests (min 1.0)", type: "number", min: 1, max: 60, step: 0.1 },
+    { path: "pricing.min_request_interval_s", label: "Seconds between PriceCharting requests (min 1.05)", type: "number", min: 1.05, max: 60, step: 0.05 },
     { path: "pricing.max_retries", label: "Retries", type: "number", min: 0, max: 6 },
     { path: "pricing.search_cache_s", label: "Search cache duration (s)", type: "number", min: 0, max: 7776000, step: 3600 },
   ],
@@ -708,8 +716,9 @@ document.addEventListener("keydown", (e) => {
     setTimeout(() => {
       if (now - scanLast < 60 && scanBuf.length > 1) return; // part of a barcode scan
       const i = Number(e.key) - 1;
-      const list = !$("suggestionsWrap").hidden ? suggestions : searchResults;
-      if (list[i]) selectProduct(list[i].productId);
+      const fromSuggestions = !$("suggestionsWrap").hidden;
+      const list = fromSuggestions ? suggestions : searchResults;
+      if (list[i]) selectProduct(list[i].productId, fromSuggestions || $("teachChk").checked);
     }, 80);
   }
 });

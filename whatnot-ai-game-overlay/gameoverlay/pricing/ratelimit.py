@@ -9,7 +9,7 @@ exceeded. Every PriceCharting request in the process goes through one
   started (and never before the previous one finished);
 * ``penalize()`` pushes the next allowed start further out (``Retry-After``/429).
 
-``min_interval`` can never be configured below 1.0 s.
+``min_interval`` can never be configured below 1.05 s.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Awaitable, Callable
 
-HARD_MIN_INTERVAL_S = 1.0
+HARD_MIN_INTERVAL_S = 1.05  # PriceCharting allows 1 call/second; keep a small safety margin
 
 
 class SerialRateLimiter:
@@ -55,10 +55,9 @@ class SerialRateLimiter:
     @asynccontextmanager
     async def slot(self) -> AsyncIterator[None]:
         async with self._lock:
-            now = self._clock()
-            wait = self._next_allowed - now
-            if wait > 0:
-                await self._sleep(wait)
+            # Loop: event-loop timers may fire slightly early (~15 ms on Windows).
+            while (wait := self._next_allowed - self._clock()) > 0:
+                await self._sleep(max(wait, 0.005))
             start = self._clock()
             self._next_allowed = start + self._interval
             self.total += 1
