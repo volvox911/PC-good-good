@@ -142,7 +142,11 @@ def test_layouts_and_price_cases(server, page_factory, w, h):
 
 
 def test_update_docs_screenshots():
-    """Copies the main renders into docs/screenshots for human review (best effort)."""
+    """Copies the main renders into docs/screenshots (set WGO_UPDATE_DOC_SCREENSHOTS=1)."""
+    import os
+
+    if os.environ.get("WGO_UPDATE_DOC_SCREENSHOTS") != "1":
+        pytest.skip("set WGO_UPDATE_DOC_SCREENSHOTS=1 to refresh docs/screenshots")
     if not SHOT_DIR.exists():
         pytest.skip("no screenshots captured")
     DOCS_SHOTS.mkdir(parents=True, exist_ok=True)

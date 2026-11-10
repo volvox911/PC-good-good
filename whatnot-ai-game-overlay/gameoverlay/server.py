@@ -366,8 +366,15 @@ def create_app(config: AppConfig, services: Services | None = None) -> FastAPI:
 
 
 def app_factory() -> FastAPI:
-    """Factory used by ``uvicorn --factory`` / development auto-reload."""
-    return create_app(AppConfig())
+    """Factory used by ``uvicorn --factory`` / development auto-reload (child process)."""
+    from .logging_setup import setup_logging
+    from .secrets_store import SecretStore
+
+    cfg = AppConfig()
+    store = SecretStore(cfg.data_dir, use_keyring=not cfg.disable_keyring)
+    setup_logging("DEBUG" if cfg.env.value == "development" else cfg.log_level, cfg.log_dir,
+                  secret_source=store.known_values)
+    return create_app(cfg)
 
 
 def _iso_now() -> str:

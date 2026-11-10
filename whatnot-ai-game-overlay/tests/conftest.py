@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 # Make sure tests never read real credentials from the developer's environment/keyring.
+# (Live tests, which are opt-in, read the saved originals from LIVE_ENV.)
+LIVE_ENV = {k: os.environ.get(k) for k in (
+    "ANTHROPIC_API_KEY", "PRICECHARTING_TOKEN", "PRICECHARTING_API_TOKEN", "OBS_PASSWORD",
+    "OBS_WEBSOCKET_PASSWORD", "WGO_LIVE_OBS_HOST", "WGO_LIVE_OBS_PORT", "WGO_LIVE_OBS_SOURCE")}
 for var in (
     "ANTHROPIC_API_KEY",
     "PRICECHARTING_TOKEN",

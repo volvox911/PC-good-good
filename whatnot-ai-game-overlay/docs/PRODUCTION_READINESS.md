@@ -1,0 +1,133 @@
+# Production readiness audit
+
+Date of audit: 2026-11-10. Environment where this was built and tested: Linux container,
+Python 3.13, Node 22, headless Chromium (Playwright). **No Windows machine, no OBS, no Sony
+ZV-1, no Anthropic API key and no PriceCharting token were available.**
+
+## 1. What was implemented
+
+| Area | Implementation |
+|---|---|
+| Backend | Python 3.12+, FastAPI + uvicorn, asyncio; single local process; `python -m gameoverlay serve`. |
+| Configuration | `.env`/env vars for bootstrap (dev/test/production + demo), validated runtime settings persisted in SQLite and editable in the dashboard. |
+| Credentials | Windows Credential Manager via `keyring` (env vars override; owner-only file fallback when no keyring exists). Write-only in the UI. |
+| Database | SQLite (WAL) with versioned migrations; price cache, match cache (auto + manual corrections), search cache, history, visual fingerprints, API usage, sessions (crash detection). |
+| PriceCharting | `/api/products` search, `/api/product` by id and UPC; exact field mapping; integer pennies → USD; global serialized queue ≥ 1.0 s (default 1.2 s); retries/backoff for 429/5xx/timeouts; auth errors not retried; strict response validation; token scrubbed from logs. |
+| OBS | Own obs-websocket v5 client (Hello/Identify/auth, requests), read-only allowlist, source discovery, `GetSourceScreenshot` of the camera input only, auto-reconnect with backoff. |
+| Detection | Localized motion + stability detector, periodic drift check, grid fingerprints (same item / new item / empty background), visual memory of earlier identifications, blur/brightness/contrast quality gate, burst capture, crop + rotation. |
+| Recognition | Anthropic SDK `beta.messages.parse` with a Pydantic schema (title, platform from PriceCharting's console vocabulary, region, edition, evidence, confidence, obscured flag, more-images flag), `claude-opus-5-5` at effort `low` (configurable), server-side refusal fallbacks, refusal → "not identified", prompt caching, per-session spend limit + requests/minute cap + cost estimates. |
+| Matching | Console family + region must match; title similarity with significant numbers (sequels, "3D"); edition adjustments; accept score + margin over runner-up + minimum confidence; UPC when legible; match cache; manual corrections override automatic matches. |
+| State machine | Idle / Detecting / Recognizing / Matching / Price lookup / Displaying / Needs confirmation / Error / Paused; generation-based supersession; corroboration before replacing a game; minimum display time; unidentified/empty grace periods; display timeout; hold with "show new game"; rescan. |
+| Overlay | Wasteland Price-O-Matic visual in CSS/inline SVG; transparent background; portrait + landscape layouts; size/position presets; auto-fitting title and prices; `N/A`; footer attribution + `AS OF`; atomic ~300 ms panel swap; lamp breathing; reduced motion; read-only auto-reconnecting WebSocket; hides after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
+| Dashboard | Status, current item + evidence + suggestions, controls with keyboard shortcuts, manual search, UPC/barcode scanner, on-air and design previews, history + recall, settings (all thresholds, crop editor, background capture), first-run wizard. |
+| Security | 127.0.0.1-only bind by default, admin token → signed HttpOnly SameSite=Strict cookie, CSRF tokens, Host/Origin checks (DNS rebinding), strict CSP, public overlay limited to read-only data. |
+| Reliability | Engine loop never dies (errors are reported), structured JSON logs, graceful shutdown, crash detection on next start, auto-restart wrapper in `Start.cmd`, bounded memory structures, DB pruning. |
+| Windows | `Install.cmd` / `Start.cmd` / `Start-Demo.cmd` / `Run-Tests.cmd` (+ PowerShell scripts), desktop shortcuts, setup wizard. |
+| Demo mode | Fake OBS server (driven through the real OBS client), mock vision, mock PriceCharting (driven through the real rate-limited client), separate demo database, port 8766. |
+
+## 2. Tests that passed (this environment)
+
+Run with `Run-Tests.cmd` (Windows) or `.venv/bin/python -m pytest -q && node --test "tests/js/*.test.mjs"`.
+
+- **Python: 175 passed** (includes 12 Playwright browser tests); 5 live tests skipped (opt-in, no credentials).
+- **JavaScript: 12 passed** (`node --test`).
+
+Coverage of the required test list:
+
+| # | Requirement | Where |
+|---|---|---|
+| 1 | Title/platform recognition with fixture images | `test_engine.py` (rendered fixture scenes through the full pipeline with a vision double), `test_recognizer.py` (real request construction with fixture images), `tests/live` (**real Claude on fixture labels — not run here**) |
+| 2 | Ambiguous titles | `test_matcher.py::test_ambiguous_close_candidates`, `test_unknown_platform_never_auto_matches` |
+| 3 | Alternate console releases | `test_matcher.py::test_same_title_different_consoles` (Mortal Kombat ×4), Resident Evil PS1/GC, Super Mario Bros vs 3 |
+| 4 | Edition & regional variants | Player's Choice, Collector's, Greatest Hits, PAL N64 tests in `test_matcher.py` |
+| 5 | Low-confidence recognition | `test_low_confidence_never_auto_matches`, obscured-title test, engine needs-confirmation tests |
+| 6 | Replacement during a lookup | `test_engine.py::test_replacement_while_lookup_in_progress` |
+| 7 | Out-of-order API responses | `test_engine.py::test_out_of_order_price_responses_discarded` |
+| 8 | PriceCharting auth failure | `test_pricecharting_client.py` (401, error-message, missing token) |
+| 9 | PriceCharting rate limiting | 1 req/s spacing under concurrency, 429 backoff/give-up |
+| 10 | Missing values | `test_money.py`, client/engine/browser N/A tests |
+| 11 | Cents → dollars | `test_money.py`, `overlay-core.test.mjs` |
+| 12 | Cache expiration | `test_pricing_service.py` |
+| 13 | OBS disconnect/reconnect | `test_obs_client.py` (restart on same port, auth failure, pending request fail-fast) |
+| 14 | Overlay rendering | `tests/browser` at 1080×1920, 720×1280, 1920×1080: bounds, transparency, overflow, phone legibility |
+| 15 | Manual corrections | matcher + engine correction-learning tests |
+| 16 | Long-running operation | `test_engine.py::test_long_session_200_games_bounded_resources` (200 games, memory growth, task count, API call counts) |
+| 17 | Missing credentials | recognizer + server startup tests |
+| 18 | Stale pricing | service + engine stale tests (hide and labeled policies) |
+| 19 | Title/price mismatch prevention | engine consistency tests, browser MutationObserver atomicity test |
+| 20 | Unauthorized dashboard access | `test_server_security.py` (auth, CSRF, Origin, Host, forged cookies, WS) |
+
+Design-brief additions: demo-data prevention, malformed records, hide/show, WebSocket reconnection
+without refresh, hide after long disconnect, reduced motion, watermark.
+
+## 3. What was verified against live services
+
+**Nothing end-to-end.** Specifically:
+
+- **PriceCharting:** the official API documentation was fetched and followed (endpoints, field
+  names, pennies, 1 call/second limit, attribution guidance). No authenticated call was made.
+- **Anthropic:** SDK 2.7.0 signatures for `beta.messages.parse` (`output_format`, `output_config`,
+  `fallbacks`, `betas`) were inspected locally and the generated JSON schema was checked. No real
+  API call was made — model behaviour, latency and cost per identification are **unmeasured**.
+- **OBS:** the obs-websocket v5 protocol was implemented from its specification and tested against
+  an in-process server implementing that protocol. Not tested against a real OBS.
+- **Windows:** PowerShell/CMD scripts were written but **not executed** (no Windows here).
+
+## 4. Hardware/integration steps still required (in this order)
+
+1. `Install.cmd -WithTests` on the streaming PC; then `Run-Tests.cmd` — expect all green.
+2. `Start-Demo.cmd` — confirm the dashboard and the watermarked demo overlay work on Windows.
+3. Enter credentials (wizard). Run
+   `set WGO_RUN_LIVE=1` and `Run-Tests.cmd -Live` (needs `ANTHROPIC_API_KEY`,
+   `PRICECHARTING_TOKEN`, and for OBS `WGO_LIVE_OBS_SOURCE=Sony ZV-1` set in that console).
+   This is the first proof that the real APIs work with this code.
+4. `.venv\Scripts\python -m gameoverlay check --live`.
+5. OBS: enable WebSocket, select the ZV-1 source, crop, capture background, add the Browser
+   Source (docs/OBS_SETUP.md). Confirm `· 1 src` in the dashboard.
+6. Rehearsal (not live on Whatnot): present 20–30 games, including same-title/different-console
+   pairs, Player's Choice/Greatest Hits copies, a PAL copy, loose carts, a game with a sticker or
+   glare. Note recognition time per game (dashboard *Total*), misidentifications and how often
+   *Needs confirmation* appears. Tune thresholds if needed.
+7. Check the vertical stream on an actual phone in the Whatnot app (legibility, and whether
+   Whatnot's own UI covers the panel — adjust position/edge offset).
+8. Run a 2–3 hour soak with OBS streaming to a private/test destination; watch CPU, memory and
+   the spend estimate.
+
+## 5. Unresolved limitations / risks
+
+- **Visual prototype not received.** `wasteland_price_overlay.html` and its preview PNG were not
+  in the request; the overlay was designed from the written brief. Pixel-matching it requires the file.
+- **Real-world recognition accuracy is unmeasured.** Thresholds (motion, stability, fingerprint
+  distances, sharpness, accept score/margin) were tuned on synthetic images and need on-site tuning.
+- **Latency target (2–5 s) is unverified.** It depends on Claude response time at effort `low`; the
+  corroboration step (only when replacing a game with a non-high-confidence result) adds a second call.
+- **Cost figures are estimates** from a built-in price table; the Anthropic invoice is authoritative.
+- **Editions/regions** are only distinguished when visible on the item; PriceCharting variants
+  that look identical to the standard release cannot be told apart from a photo.
+- **UPC lookup** helps only when a barcode is legible (rare on retro carts); a USB scanner works
+  via the dashboard.
+- **Fonts:** the overlay prefers Windows fonts (Bahnschrift/Consolas); screenshots in `docs/` were
+  rendered with Linux fallbacks and will look slightly different on Windows.
+- **Attribution wording:** default `SOURCE: PRICECHARTING`; set the exact text your commercial
+  agreement requires (Settings → Display & Overlay → Attribution text).
+- **Local time:** `AS OF` uses the streaming PC's clock/time zone.
+- **No HTTPS** — by design the app only listens on 127.0.0.1.
+- **Docker** is not provided (not needed for normal use).
+
+## 6. Exact start instructions
+
+1. Double-click `Install.cmd` (first time only).
+2. Double-click `Start.cmd` (live) — or `Start-Demo.cmd` (demo, port 8766).
+3. The dashboard opens automatically. If not, copy the *Operator dashboard* link printed in the
+   console window (or run `.venv\Scripts\python -m gameoverlay login-url`).
+4. Keep the console window open during the show; Ctrl+C stops the app.
+
+## 7. Exact OBS instructions (summary — full version in docs/OBS_SETUP.md)
+
+1. OBS → Tools → WebSocket Server Settings → Enable, port 4455, copy the password into the
+   dashboard (Settings → Credentials).
+2. Camera source: untick *Deactivate when not showing*; select it in the dashboard; draw the crop.
+3. Whatnot scene → Sources → + → **Browser**: URL `http://127.0.0.1:8765/overlay`, Width 1080,
+   Height 1920 (= canvas), default Custom CSS, untick *Shutdown source when not visible* and
+   *Refresh browser when scene becomes active*.
+4. Put it above the camera; Transform → Reset Transform; size/position via the dashboard only.

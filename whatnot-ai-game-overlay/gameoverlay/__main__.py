@@ -62,6 +62,8 @@ def cmd_serve(args) -> int:
         threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(_login_url(cfg))), daemon=True).start()
     if args.reload:
         os.environ["WGO_ENV"] = cfg.env.value
+        os.environ["WGO_PORT"] = str(cfg.port)
+        os.environ["WGO_HOST"] = cfg.host
         if cfg.demo:
             os.environ["WGO_DEMO"] = "true"
         uvicorn.run("gameoverlay.server:app_factory", factory=True, host=cfg.host, port=cfg.port, reload=True,
