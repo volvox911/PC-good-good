@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .config import AppConfig
 from .demo.sample import PREVIEW_VARIANTS
-from .obs.client import OBSError
+from .obs.client import OBSError, OBSRequestError
 from .pipeline.engine import Superseded
 from .pricing.client import PriceChartingAuthError, PriceChartingError
 from .pricing.service import PriceUnavailable
@@ -34,11 +34,21 @@ from .security import (
     websocket_admin_ok,
 )
 from .services import Services
-from .vision.imaging import decode, encode_jpeg, limit_long_side, rotate
+from .vision.imaging import ImageDecodeError, decode, encode_jpeg, limit_long_side, rotate
 
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(str(resources.files("gameoverlay").joinpath("web")))
+
+CAMERA_INACTIVE_HINT = (
+    "OBS reports this camera is not active. In OBS, open the camera source's Properties and untick "
+    "'Deactivate when not showing' (or add the camera to the current scene), make sure the camera is on "
+    "and not in use by another app, then click Refresh image."
+)
+CAMERA_HINT = (
+    "Check that the camera shows live video in OBS (Properties of the source should show a picture), "
+    "that 'Deactivate when not showing' is unticked, and that no other app is using the camera."
+)
 
 
 def _web(*parts: str) -> Path:
@@ -213,14 +223,30 @@ def create_app(config: AppConfig, services: Services | None = None, login_code: 
     @app.get("/api/camera/preview.jpg")
     async def api_camera_preview(_: str = admin) -> Response:
         s = svc.settings
-        if not s.obs.camera_source:
-            raise HTTPException(409, "select a camera source first")
+        name = s.obs.camera_source
+        if not name:
+            raise HTTPException(409, "Select the camera source first.")
+        if not svc.obs.connected:
+            raise HTTPException(503, f"OBS is not connected ({svc.obs.state}). Check Settings → Credentials / OBS & Camera.")
         try:
-            data = await svc.obs.screenshot(s.obs.camera_source, width=960, quality=80)
+            data = await svc.obs.screenshot(name, width=960, quality=80)
+        except OBSRequestError as e:
+            active = await svc.obs.source_active(name)
+            hint = CAMERA_INACTIVE_HINT if active is False else CAMERA_HINT
+            raise HTTPException(502, f"OBS could not capture “{name}” ({e}). {hint}")
         except OBSError as e:
             raise HTTPException(503, f"OBS: {e}")
-        img = limit_long_side(rotate(decode(data), s.obs.rotation), 960)
-        return Response(encode_jpeg(img, 80), media_type="image/jpeg")
+        try:
+            img = limit_long_side(rotate(decode(data), s.obs.rotation), 960)
+        except ImageDecodeError:
+            raise HTTPException(502, "OBS returned an image that could not be decoded.")
+        headers = {}
+        if float(img.mean()) < 4.0:
+            active = await svc.obs.source_active(name)
+            headers["X-Preview-Warning"] = (
+                "The camera image is black. " + (CAMERA_INACTIVE_HINT if active is False else CAMERA_HINT)
+            ).encode("ascii", "replace").decode()
+        return Response(encode_jpeg(img, 80), media_type="image/jpeg", headers=headers)
 
     # -- detection / overlay controls -------------------------------------------------------
     @app.post("/api/detection/pause")

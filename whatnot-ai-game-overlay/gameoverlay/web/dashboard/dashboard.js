@@ -105,7 +105,7 @@ function renderPills(s) {
   const spend = usage.limitUsd ? `$${(usage.estimatedCostUsd || 0).toFixed(2)} / $${usage.limitUsd.toFixed(2)}` : "—";
   p.replaceChildren(
     pill("OBS", s.obs.state.replace("_", " "), obsCls),
-    pill("Camera", cam, s.obs.cameraSource ? "ok" : "warn"),
+    pill("Camera", cam, !s.obs.cameraSource ? "warn" : cameraFailing(s) ? "err" : "ok"),
     pill("Claude", ai.replace("_", " "), aiCls),
     pill("PriceCharting", pc.replace("_", " "), pcCls),
     pill("Detection", eng.detectionEnabled ? "active" : "paused", detCls),
@@ -114,8 +114,15 @@ function renderPills(s) {
   );
 }
 
+function cameraFailing(s) {
+  return s.engine.state === "error" && /camera capture failed/i.test(s.engine.reason || "");
+}
+
 function renderBanner(s) {
   const msgs = [];
+  if (cameraFailing(s)) {
+    msgs.push(`${s.engine.reason}. In OBS, check that “${s.obs.cameraSource}” shows live video, untick “Deactivate when not showing” in its Properties, and close any other app using the camera.`);
+  }
   if (s.mode === "demo") msgs.push("DEMO MODE — mock camera, mock Claude and mock PriceCharting data. Everything shown is watermarked sample data.");
   if (s.session.recoveredFromCrash) msgs.push("Recovered from an unexpected shutdown. Settings and caches were restored.");
   if (s.mode !== "demo") {
@@ -128,7 +135,7 @@ function renderBanner(s) {
   if (s.anthropic.usage && s.anthropic.usage.limitReached) msgs.push("Claude session spend limit reached — detection paused. Raise the limit in Settings → Recognition to continue.");
   const b = $("banner");
   b.hidden = msgs.length === 0;
-  b.classList.toggle("err", msgs.some((m) => /rejected|missing|limit/.test(m)));
+  b.classList.toggle("err", msgs.some((m) => /rejected|missing|limit|capture failed/i.test(m)));
   b.replaceChildren(...msgs.map((m) => h("div", { text: m })));
 }
 
@@ -446,7 +453,10 @@ function fieldEl(f) {
   let input;
   if (f.type === "select") {
     input = h("select", {}, ...f.options.map((o) => h("option", { value: String(o), selected: String(o) === String(value), text: String(o) })));
-    input.addEventListener("change", () => saveSetting(f.path, typeof f.options[0] === "number" ? Number(input.value) : input.value, err));
+    input.addEventListener("change", async () => {
+      const ok = await saveSetting(f.path, typeof f.options[0] === "number" ? Number(input.value) : input.value, err);
+      if (ok && f.path === "obs.rotation") document.dispatchEvent(new Event("camera-changed"));
+    });
   } else if (f.type === "checkbox") {
     input = h("input", { type: "checkbox" });
     input.checked = !!value;
@@ -457,7 +467,9 @@ function fieldEl(f) {
   } else if (f.type === "source") {
     input = h("select", {}, h("option", { value: "", text: value || "(choose…)" }));
     loadSources(input, value);
-    input.addEventListener("change", () => input.value && saveSetting(f.path, input.value, err));
+    input.addEventListener("change", async () => {
+      if (input.value && (await saveSetting(f.path, input.value, err))) document.dispatchEvent(new Event("camera-changed"));
+    });
   } else if (f.type === "crop") {
     return h("div", { class: "field wide" }, h("label", { text: f.label }), cropEditor(value, err), h("div", { class: "help", text: f.help || "" }), err);
   } else {
@@ -491,8 +503,36 @@ function backgroundField() {
     st);
 }
 
+async function loadPreview(img, err) {
+  // fetch() instead of <img src> so the server's explanation can be shown when it fails
+  err.textContent = "Loading camera preview…";
+  err.classList.remove("err-ok");
+  try {
+    const res = await fetch(`/api/camera/preview.jpg?t=${Date.now()}`, { credentials: "same-origin" });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j && j.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+      } catch {}
+      img.hidden = true;
+      err.textContent = `Camera preview unavailable: ${msg}`;
+      return;
+    }
+    const blob = await res.blob();
+    if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+    img.dataset.url = URL.createObjectURL(blob);
+    img.src = img.dataset.url;
+    img.hidden = false;
+    err.textContent = res.headers.get("X-Preview-Warning") || "";
+  } catch (e) {
+    img.hidden = true;
+    err.textContent = `Camera preview unavailable: ${e.message}`;
+  }
+}
+
 function cropEditor(crop, err) {
-  const img = h("img", { alt: "Camera preview", src: `/api/camera/preview.jpg?t=${Date.now()}` });
+  const img = h("img", { alt: "Camera preview", hidden: true });
   const rect = h("div", { class: "crop-rect" }, h("div", { class: "handle" }));
   const box = h("div", { class: "crop-editor" }, img, rect);
   let c = { ...crop };
@@ -503,7 +543,10 @@ function cropEditor(crop, err) {
     rect.style.height = c.h * 100 + "%";
   };
   place();
-  img.addEventListener("error", () => (err.textContent = "Camera preview unavailable (is OBS connected and a camera source selected?)"));
+  loadPreview(img, err);
+  // reload automatically when the camera source / rotation is changed elsewhere on the page
+  const onSourceChange = () => (document.body.contains(box) ? loadPreview(img, err) : document.removeEventListener("camera-changed", onSourceChange));
+  document.addEventListener("camera-changed", onSourceChange);
   let drag = null;
   rect.addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -533,7 +576,7 @@ function cropEditor(crop, err) {
     saveSetting("obs.crop", c, err);
   });
   const reset = h("button", { class: "small ghost", onclick: () => { c = { x: 0, y: 0, w: 1, h: 1 }; place(); saveSetting("obs.crop", c, err); } }, "Use full frame");
-  const refresh = h("button", { class: "small ghost", onclick: () => (img.src = `/api/camera/preview.jpg?t=${Date.now()}`) }, "Refresh image");
+  const refresh = h("button", { class: "small ghost", onclick: () => loadPreview(img, err) }, "Refresh image");
   return h("div", {}, box, h("div", { class: "row", style: "margin-top:6px" }, reset, refresh));
 }
 
