@@ -110,13 +110,13 @@ test("formatAsOf", () => {
   assert.equal(formatAsOf(new Date("bad"), now), "");
 });
 
-test("layout presets: portrait default is balanced bottom-center with 8% margins", () => {
-  const L = computeLayout({ vw: 1080, vh: 1920, designHeight: 640 });
+test("layout presets: portrait default is a slim balanced top-center band with 8% margins", () => {
+  const L = computeLayout({ vw: 1080, vh: 1920, designHeight: 175 });
   assert.equal(L.orientation, "portrait");
   const margin = (1080 - L.width) / 2;
   assert.ok(margin >= 1080 * 0.07 && margin <= 1080 * 0.12, `margin ${margin}`);
-  assert.ok(L.y + L.height <= 1920 && L.y > 1920 * 0.55, "in the lower part of the frame");
-  assert.ok(L.height <= 1920 * 0.38 + 1);
+  assert.ok(L.y >= 0 && L.y <= 1920 * 0.05, "anchored at the top of the frame");
+  assert.ok(L.y + L.height <= 1920 * 0.15, "slim: stays in the top strip");
 });
 
 test("layout presets: sizes and positions", () => {
@@ -126,8 +126,10 @@ test("layout presets: sizes and positions", () => {
   const left = computeLayout({ vw: 1080, vh: 1920, position: "bottom-left", designHeight: 640 });
   const right = computeLayout({ vw: 1080, vh: 1920, position: "bottom-right", designHeight: 640 });
   assert.ok(left.x < right.x && left.x >= 0 && right.x + right.width <= 1080);
-  const top = computeLayout({ vw: 1080, vh: 1920, position: "top-center", designHeight: 640 });
+  const top = computeLayout({ vw: 1080, vh: 1920, position: "top-center", designHeight: 175 });
   assert.ok(top.y < 200);
+  const bottom = computeLayout({ vw: 1080, vh: 1920, position: "bottom-center", designHeight: 175 });
+  assert.ok(bottom.y > 1920 * 0.8, "bottom presets remain available");
   const side = computeLayout({ vw: 1080, vh: 1920, position: "side-right", designHeight: 640 });
   assert.ok(side.width <= 1080 * 0.46 + 1);
 });

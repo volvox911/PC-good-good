@@ -74,9 +74,11 @@ refresh.
 
 ## 5. Whatnot considerations
 
-- Whatnot's app draws its own UI (chat, bid button, timer) over parts of the vertical video. The
-  default *balanced bottom-center* keeps the central product area clear; if Whatnot's controls
-  cover the panel on your phone, try **top-center** or adjust *Distance from edge*.
+- Whatnot's app draws its own UI (host name, viewer count, chat, bid button, timer) over parts
+  of the vertical video. The default slim *balanced top-center* band keeps the central product
+  area and the bottom (chat/bid area) clear. Check it on a phone in the Whatnot app: if the host
+  name / viewer count covers the band, increase *Distance from edge* (Settings → Display &
+  Overlay) until it sits just below them.
 - If you ever restart the app during a show, OBS does not need a refresh — the overlay
   reconnects automatically and shows nothing until the next verified record.
 

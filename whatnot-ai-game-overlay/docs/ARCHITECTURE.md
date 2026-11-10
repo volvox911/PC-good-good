@@ -88,7 +88,7 @@ Single local Python process (FastAPI + asyncio) — no Docker, no cloud hosting,
             "verified": true, "looseUsd": 42.5, "completeUsd": 109.99, "newUsd": 599.0,
             "looseCents": 4250, "completeCents": 10999, "newCents": 59900,
             "retrievedAt": "2026-11-10T14:32:00Z", "freshness": "fresh", "demo": false},
- "layout": {"size": "balanced", "position": "bottom-center", "…": "…"}}
+ "layout": {"size": "balanced", "position": "top-center", "showAttribution": false, "…": "…"}}
 ```
 
 The overlay formats from the integer cents; it rejects records where cents and USD disagree.

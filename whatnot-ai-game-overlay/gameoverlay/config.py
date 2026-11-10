@@ -218,21 +218,23 @@ class DisplaySettings(BaseModel):
 
 class OverlaySettings(BaseModel):
     size: SizePreset = "balanced"
-    position: PositionPreset = "bottom-center"
+    position: PositionPreset = "top-center"
     orientation: OrientationMode = "auto"
     opacity: float = Field(default=1.0, ge=0.3, le=1.0)
     font_scale: float = Field(default=1.0, ge=0.8, le=1.3)
     # Extra distance from the anchored edge, as a fraction of the canvas height.
     edge_offset: float = Field(default=0.035, ge=0.0, le=0.3)
+    # Source attribution line is off by default; enable it if your PriceCharting
+    # commercial agreement requires on-screen attribution.
+    show_attribution: bool = False
     attribution_text: str = Field(default="SOURCE: PRICECHARTING", max_length=60)
+    show_retrieval_time: bool = True
     show_product_link: bool = False
-    machine_name: str = Field(default="THE WASTELAND EXCHANGE", max_length=40)
-    machine_model: str = Field(default="PRICE-O-MATIC", max_length=24)
     reduced_motion: bool = False
     canvas_width: int = Field(default=1080, ge=320, le=7680)
     canvas_height: int = Field(default=1920, ge=320, le=7680)
 
-    @field_validator("attribution_text", "machine_name", "machine_model")
+    @field_validator("attribution_text")
     @classmethod
     def _printable(cls, v: str) -> str:
         v = " ".join(v.split())

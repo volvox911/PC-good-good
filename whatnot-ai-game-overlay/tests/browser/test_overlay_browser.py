@@ -109,9 +109,12 @@ def test_layouts_and_price_cases(server, page_factory, w, h):
         assert m["state"] == "visible" and m["watermark"] is False, "live records are never watermarked"
         # transparent outside the machine
         assert alpha_at(png, (2, 2)) == 0 and alpha_at(png, (w - 3, 2)) == 0
-        assert alpha_at(png, (w // 2, int(h * 0.3))) == 0, "central product area must stay clear"
-        # lower third / bottom placement by default
-        assert y0 >= h * 0.55, f"panel should sit low in the frame (top at {y0})"
+        assert alpha_at(png, (w // 2, int(h * 0.5))) == 0, "central product area must stay clear"
+        assert alpha_at(png, (w // 2, h - 3)) == 0, "bottom of the frame stays clear"
+        # slim band anchored at the top by default
+        assert y0 <= h * 0.05, f"band should sit at the top of the frame (top at {y0})"
+        limit = 0.16 if w < h else 0.2  # incl. the top margin; two-line titles are the tallest case
+        assert y1 <= h * limit, f"{name}: band should be slim (bottom at {y1}, {(y1 - y0) / h:.1%} of the height)"
         if w < h:
             margin = min(x0, w - x1)
             assert w * 0.04 <= margin <= w * 0.13, f"side margin {margin}"

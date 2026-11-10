@@ -130,7 +130,7 @@ export function resolveOrientation(vw, vh, mode = "auto") {
  * Where to draw the machine. Returns design->canvas scale and top-left position.
  * `designHeight` is the machine's unscaled height for the resolved orientation.
  */
-export function computeLayout({ vw, vh, size = "balanced", position = "bottom-center", orientation = "auto", edgeOffset = 0.035, designHeight }) {
+export function computeLayout({ vw, vh, size = "balanced", position = "top-center", orientation = "auto", edgeOffset = 0.035, designHeight }) {
   const o = resolveOrientation(vw, vh, orientation);
   const dw = DESIGN_WIDTH[o];
   const frac = (WIDTH_FRACTION[o] || WIDTH_FRACTION.portrait)[size] ?? WIDTH_FRACTION[o].balanced;

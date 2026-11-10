@@ -18,7 +18,7 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 | Recognition | Anthropic SDK `beta.messages.parse` with a Pydantic schema (title, platform from PriceCharting's console vocabulary, region, edition, evidence, confidence, obscured flag, more-images flag), `claude-opus-5-5` at effort `low` (configurable), server-side refusal fallbacks, refusal → "not identified", prompt caching, per-session spend limit + requests/minute cap + cost estimates. |
 | Matching | Console family + region must match; title similarity with significant numbers (sequels, "3D"); edition adjustments; accept score + margin over runner-up + minimum confidence; UPC when legible; match cache; manual corrections override automatic matches. |
 | State machine | Idle / Detecting / Recognizing / Matching / Price lookup / Displaying / Needs confirmation / Error / Paused; generation-based supersession; corroboration before replacing a game; minimum display time; unidentified/empty grace periods; display timeout; hold with "show new game"; rescan. |
-| Overlay | Wasteland Price-O-Matic visual in CSS/inline SVG; transparent background; portrait + landscape layouts; size/position presets; auto-fitting title and prices; `N/A`; footer attribution + `AS OF`; atomic ~300 ms panel swap; lamp breathing; reduced motion; read-only auto-reconnecting WebSocket; hides after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
+| Overlay | Slim copper/CRT price band at the top (≈10% of a 9:16 frame) in CSS/inline SVG; transparent background; portrait + single-row landscape layouts; size/position presets; auto-fitting title and prices; `N/A`; `AS OF` retrieval time; optional source attribution (off by default); atomic ~300 ms panel swap; lamp breathing; reduced motion; read-only auto-reconnecting WebSocket; hides after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
 | Dashboard | Status, current item + evidence + suggestions, controls with keyboard shortcuts, manual search, UPC/barcode scanner, on-air and design previews, history + recall, settings (all thresholds, crop editor, background capture), first-run wizard. |
 | Security | 127.0.0.1-only bind by default, one-time sign-in links (the permanent admin token is only ever POSTed, never put in URLs), signed HttpOnly SameSite=Strict session cookie, CSRF tokens, Host/Origin checks (DNS rebinding; overlay sockets too), strict CSP, public overlay limited to read-only data, admin token redacted from logs. |
 | Reliability | Engine loop never dies (errors are reported), structured JSON logs, graceful shutdown, crash detection on next start, auto-restart wrapper in `Start.cmd`, bounded memory structures, DB pruning. |
@@ -113,8 +113,11 @@ without refresh, hide after long disconnect, reduced motion, watermark.
   via the dashboard.
 - **Fonts:** the overlay prefers Windows fonts (Bahnschrift/Consolas); screenshots in `docs/` were
   rendered with Linux fallbacks and will look slightly different on Windows.
-- **Attribution wording:** default `SOURCE: PRICECHARTING`; set the exact text your commercial
-  agreement requires (Settings → Display & Overlay → Attribution text).
+- **Attribution:** the on-screen source line is **off by default** at your request. PriceCharting's
+  API terms say they *prefer* attribution when sharing their data under a commercial agreement;
+  if your agreement requires it, enable *Show source attribution* and set the exact wording.
+- **Whatnot's own top UI** (host name, viewer count) may overlap the top band on phones; adjust
+  *Distance from edge* after checking a real stream.
 - **Local time:** `AS OF` uses the streaming PC's clock/time zone.
 - **No HTTPS** — by design the app only listens on 127.0.0.1.
 - **Docker** is not provided (not needed for normal use).

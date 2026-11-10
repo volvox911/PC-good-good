@@ -131,9 +131,9 @@ class OverlayHub:
             "fontScale": o.font_scale,
             "edgeOffset": o.edge_offset,
             "attribution": o.attribution_text,
+            "showAttribution": o.show_attribution,
+            "showRetrievalTime": o.show_retrieval_time,
             "showProductLink": o.show_product_link,
-            "machineName": o.machine_name,
-            "machineModel": o.machine_model,
             "reducedMotion": o.reduced_motion,
             "disconnectHideMs": int(self._display_settings().overlay_disconnect_hide_s * 1000),
         }

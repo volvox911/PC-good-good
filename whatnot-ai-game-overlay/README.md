@@ -1,4 +1,4 @@
-# Whatnot AI Game Overlay — *The Wasteland Exchange · Price-O-Matic*
+# Whatnot AI Game Overlay — *Price-O-Matic*
 
 Hold a retro video game up to your Sony ZV-1 during a Whatnot auction. The app identifies the
 game and its console with Claude Vision, validates the match against the PriceCharting catalog,
@@ -48,25 +48,28 @@ readable game to prices on screen (depends on Claude latency; not yet measured l
 
 ## What viewers see
 
-**THE WASTELAND EXCHANGE — PRICE-O-MATIC**: an original scavenged appraisal console — hammered
-copper frame with verdigris patina, brass rivets and screws, copper pipes, a stamped-steel inset,
-a breathing amber signal lamp and pressure gauge, an industrial hazard stripe, amber stencil
-labels and three mint-green CRT readouts.
+A **slim price band across the top of the stream** (about 10% of a vertical frame), styled
+as scavenged hardware: hammered copper frame with verdigris patina, brass screws, a
+stamped-steel inset, a small breathing amber signal lamp, a hazard stripe on the frame's lower
+lip, and three mint-green CRT readouts with amber stencil labels inside the screens.
 
-- Only the machine is opaque; everything else is transparent.
-- Game title (wraps to two lines, shrinks gracefully for very long titles) and the exact console.
+- Only the band is opaque; everything else is transparent.
+- One row for the game title (wraps to two lines and shrinks gracefully for very long titles)
+  with the exact console on the right.
 - **Exactly three prices: LOOSE, COMPLETE, NEW** — 100% of the PriceCharting values, never
   adjusted. Missing values show **N/A**, never `$0.00`. Each readout auto-fits so six-figure
   prices stay inside the glass while normal prices stay huge.
-- Footer: `SOURCE: PRICECHARTING` (editable for your commercial-agreement wording) and
-  `AS OF HH:MM` (the PriceCharting retrieval time). Stale data allowed by policy is labeled
-  `CACHED · AS OF …`.
+- A small `AS OF HH:MM` under the console shows the PriceCharting retrieval time (can be
+  turned off). Stale data allowed by policy is labeled `CACHED · AS OF …`. A source-attribution
+  line is available but **off by default** (Settings → Display & Overlay → *Show source
+  attribution*) — turn it on if your PriceCharting commercial agreement requires it.
 - Game changes animate as one complete ~300 ms mechanical panel swap; the title and all prices
   change in the same frame. `prefers-reduced-motion` (or the *Reduce motion* setting) disables
   animation.
-- Presets: **compact / balanced / large** × **bottom-left / bottom-center / bottom-right**
-  (default *balanced bottom-center*), plus top and side positions, opacity, font scale and edge
-  offset. Portrait and landscape layouts are chosen automatically from the canvas shape.
+- Presets: **compact / balanced / large** × **top-left / top-center / top-right**
+  (default *balanced top-center*), plus bottom and side positions, opacity, font scale and
+  distance from the edge. Portrait and landscape layouts are chosen automatically from the
+  canvas shape (16:9 uses a single row).
 - All decoration is CSS/inline SVG — no external images, fonts or CDNs.
 
 ## How recognition stays accurate

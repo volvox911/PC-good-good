@@ -1,4 +1,4 @@
-// THE WASTELAND EXCHANGE — PRICE-O-MATIC · viewer overlay runtime
+// PRICE-O-MATIC slim price band · viewer overlay runtime
 //
 // * Connects to the local backend over a read-only WebSocket (/ws/overlay) and
 //   reconnects automatically (no OBS page refresh needed).
@@ -30,8 +30,6 @@ const els = {
   new: $("priceNew"),
   asOf: $("asOf"),
   attribution: $("attribution"),
-  machineName: $("machineName"),
-  machineModel: $("machineModel"),
   demoMark: $("demoMark"),
 };
 
@@ -45,14 +43,14 @@ const EXIT_MS = 360;
 
 let layout = {
   size: "balanced",
-  position: "bottom-center",
+  position: "top-center",
   orientation: "auto",
   opacity: 1,
   fontScale: 1,
   edgeOffset: 0.035,
   attribution: "SOURCE: PRICECHARTING",
-  machineName: "THE WASTELAND EXCHANGE",
-  machineModel: "PRICE-O-MATIC",
+  showAttribution: false,
+  showRetrievalTime: true,
   reducedMotion: false,
   disconnectHideMs: 120000,
 };
@@ -105,8 +103,8 @@ function fitText() {
   const fs = Number(layout.fontScale) || 1;
   // Title: up to 2 lines at full size, shrinking gracefully, then 3 lines (clamped).
   const t = els.title;
-  let size = 48 * fs;
-  const min = 30;
+  let size = 38 * fs;
+  const min = 24;
   t.style.fontSize = size + "px";
   const lines = (n, s) => n * s * 1.12 + s * 0.06 + 2;
   while (t.scrollHeight > lines(2, size) && size > min) {
@@ -116,7 +114,7 @@ function fitText() {
   // Prices: each readout as large as its display allows (huge by default, a
   // six-figure value shrinks only itself) — never overflowing the CRT glass.
   // Digits are drawn with scaleX(PRICE_CONDENSE) in CSS, so measure accordingly.
-  const base = 70;
+  const base = 60;
   for (const el of [els.loose, els.complete, els.new]) {
     el.style.fontSize = base * fs + "px";
     const avail = el.parentElement.clientWidth - 12 - 14; // padding + breathing room from the bezel
@@ -130,9 +128,10 @@ function fitText() {
 function applyLayoutSettings() {
   document.documentElement.style.setProperty("--font-scale", String(Number(layout.fontScale) || 1));
   els.machine.style.setProperty("--panel-opacity", String(Number(layout.opacity) || 1));
-  els.attribution.textContent = layout.attribution || "SOURCE: PRICECHARTING";
-  els.machineName.textContent = layout.machineName || "THE WASTELAND EXCHANGE";
-  els.machineModel.textContent = layout.machineModel || "PRICE-O-MATIC";
+  // Source attribution is off by default (operator choice); the retrieval time stays on.
+  els.attribution.textContent = layout.attribution || "";
+  els.attribution.hidden = !(layout.showAttribution && layout.attribution);
+  els.asOf.hidden = layout.showRetrievalTime === false;
   document.documentElement.classList.toggle("reduced-motion", !!layout.reducedMotion);
   const o = resolveOrientation(window.innerWidth, window.innerHeight, layout.orientation);
   if (o !== orientation) {
@@ -158,6 +157,8 @@ function position() {
   });
   els.anchor.style.transform = `translate(${L.x}px, ${L.y}px) scale(${L.scale})`;
   els.anchor.dataset.orientation = L.orientation;
+  const pos = layout.position || "top-center";
+  els.anchor.dataset.edge = pos.startsWith("bottom-") ? "bottom" : pos.startsWith("side-") ? "side" : "top";
 }
 
 function setVisible(on) {

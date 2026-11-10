@@ -10,88 +10,46 @@
 </head>
 <body>
   <!--
-    THE WASTELAND EXCHANGE — PRICE-O-MATIC
-    Viewer-facing OBS Browser Source. Transparent everywhere except the machine.
-    Shows nothing until the backend sends a verified PriceCharting record.
-    Contains no sample prices; demo/preview data is always watermarked.
+    Viewer-facing OBS Browser Source: a slim copper-and-steel price band.
+    Transparent everywhere except the band. Shows nothing until the backend sends a
+    verified PriceCharting record. Contains no sample prices; demo/preview data is
+    always watermarked.
   -->
   <div id="anchor" class="anchor" aria-live="polite">
     <div id="machine" class="machine layout-portrait" data-state="hidden" role="img" aria-label="Game price guide">
-
-      <!-- scavenged copper plumbing -->
-      <div class="pipe pipe-l" aria-hidden="true"><i class="pipe-joint j1"></i><i class="pipe-joint j2"></i><i class="pipe-elbow"></i></div>
-      <div class="pipe pipe-r" aria-hidden="true"><i class="pipe-joint j1"></i><i class="pipe-joint j2"></i><i class="pipe-elbow"></i></div>
-
-      <!-- Art Deco marquee -->
-      <header class="marquee">
-        <div class="marquee-plate copper">
-          <i class="rivet" style="left:14px;top:14px"></i><i class="rivet" style="right:14px;top:14px"></i>
-          <i class="rivet" style="left:14px;bottom:12px"></i><i class="rivet" style="right:14px;bottom:12px"></i>
-          <div class="lamp" aria-hidden="true"><span class="lamp-glass"></span><span class="lamp-glow"></span></div>
-          <div class="marquee-text">
-            <div class="machine-name stencil" id="machineName">THE WASTELAND EXCHANGE</div>
-            <div class="machine-model" id="machineModel">PRICE-O-MATIC</div>
-          </div>
-          <svg class="gauge" viewBox="0 0 100 100" aria-hidden="true">
-            <defs>
-              <radialGradient id="gBezel" cx="35%" cy="30%" r="75%">
-                <stop offset="0" stop-color="#fff1c2"/><stop offset=".35" stop-color="#d8b25c"/>
-                <stop offset=".75" stop-color="#8a6422"/><stop offset="1" stop-color="#4a3210"/>
-              </radialGradient>
-              <radialGradient id="gFace" cx="45%" cy="40%" r="70%">
-                <stop offset="0" stop-color="#f4ead0"/><stop offset=".8" stop-color="#d9c99f"/><stop offset="1" stop-color="#a8956a"/>
-              </radialGradient>
-            </defs>
-            <circle cx="50" cy="50" r="48" fill="url(#gBezel)"/>
-            <circle cx="50" cy="50" r="39" fill="url(#gFace)" stroke="#3b2a10" stroke-width="1.5"/>
-            <path d="M24 66 A30 30 0 0 1 76 66" fill="none" stroke="#2b2418" stroke-width="2.4" stroke-dasharray="1.6 5.2"/>
-            <path d="M64 31 A30 30 0 0 1 76 66" fill="none" stroke="#b5321e" stroke-width="4.5" opacity=".85"/>
-            <text x="50" y="72" text-anchor="middle" font-size="9" font-family="Arial, sans-serif" font-weight="700" fill="#3b2a10">PSI</text>
-            <line x1="50" y1="54" x2="34" y2="32" stroke="#1b140b" stroke-width="3" stroke-linecap="round"/>
-            <circle cx="50" cy="54" r="5" fill="#2a1d0c" stroke="#c9a04a" stroke-width="1.5"/>
-          </svg>
-        </div>
-      </header>
-
-      <!-- main body: hammered copper frame around a stamped-steel inset -->
       <section class="body copper">
-        <i class="screw" style="left:12px;top:12px"></i><i class="screw" style="right:12px;top:12px"></i>
-        <i class="screw" style="left:12px;bottom:12px"></i><i class="screw" style="right:12px;bottom:12px"></i>
-        <i class="rivet-row top" aria-hidden="true"></i><i class="rivet-row bottom" aria-hidden="true"></i>
+        <i class="screw" style="left:3px;top:3px"></i><i class="screw" style="right:3px;top:3px"></i>
+        <i class="screw" style="left:3px;bottom:3px"></i><i class="screw" style="right:3px;bottom:3px"></i>
+        <div class="hazard" aria-hidden="true"><i class="bolt"></i><i class="bolt"></i></div>
 
         <div class="inset">
+          <!-- game identity: title + console on one slim row -->
           <div class="nameplate">
             <div class="nameplate-inner">
-              <div class="swap" id="titleSwap">
+              <span class="lamp" aria-hidden="true"><span class="lamp-glass"></span><span class="lamp-glow"></span></span>
+              <div class="swap title-swap" id="titleSwap">
                 <h1 class="game-title" id="gameTitle"></h1>
+              </div>
+              <div class="swap meta-swap">
                 <div class="console-tag"><span class="console-name stencil" id="consoleName"></span></div>
+                <div class="meta-line"><span class="attribution" id="attribution" hidden></span><span class="asof" id="asOf"></span></div>
               </div>
             </div>
           </div>
 
-          <div class="hazard" aria-hidden="true"><i class="bolt"></i><i class="bolt"></i></div>
-
+          <!-- three CRT readouts; labels sit inside the screens to save height -->
           <div class="readouts">
             <div class="readout" data-kind="loose">
-              <div class="label-plate"><span class="stencil">LOOSE</span></div>
-              <div class="crt"><div class="crt-glass"><div class="swap"><span class="price" id="priceLoose"></span></div></div></div>
+              <div class="crt"><div class="crt-glass"><span class="crt-label stencil">LOOSE</span><div class="swap"><span class="price" id="priceLoose"></span></div></div></div>
             </div>
             <div class="readout" data-kind="complete">
-              <div class="label-plate"><span class="stencil">COMPLETE</span></div>
-              <div class="crt"><div class="crt-glass"><div class="swap"><span class="price" id="priceComplete"></span></div></div></div>
+              <div class="crt"><div class="crt-glass"><span class="crt-label stencil">COMPLETE</span><div class="swap"><span class="price" id="priceComplete"></span></div></div></div>
             </div>
             <div class="readout" data-kind="new">
-              <div class="label-plate"><span class="stencil">NEW</span></div>
-              <div class="crt"><div class="crt-glass"><div class="swap"><span class="price" id="priceNew"></span></div></div></div>
+              <div class="crt"><div class="crt-glass"><span class="crt-label stencil">NEW</span><div class="swap"><span class="price" id="priceNew"></span></div></div></div>
             </div>
           </div>
         </div>
-
-        <footer class="footer">
-          <span class="attribution" id="attribution">SOURCE: PRICECHARTING</span>
-          <span class="tuner" aria-hidden="true"><i class="tuner-scale"></i><i class="tuner-needle"></i></span>
-          <span class="asof" id="asOf"></span>
-        </footer>
       </section>
 
       <div class="demo-watermark" id="demoMark" hidden>

@@ -56,7 +56,8 @@ def test_invalid_settings_rejected():
 
 def test_defaults_match_design_brief():
     s = RuntimeSettings()
-    assert s.overlay.size == "balanced" and s.overlay.position == "bottom-center"
+    assert s.overlay.size == "balanced" and s.overlay.position == "top-center"
+    assert s.overlay.show_attribution is False and s.overlay.show_retrieval_time is True
     assert s.pricing.price_refresh_s == 3600
     assert s.pricing.min_request_interval_s >= 1.0
     assert s.recognition.model == "claude-opus-5-5"
