@@ -64,6 +64,14 @@ before going live, use the dashboard's **Overlay preview → Design samples** (w
 run `Start-Demo.cmd` and temporarily point a *test* Browser Source at
 `http://127.0.0.1:8766/overlay` (demo port) — remove it before your show.
 
+### Startup order
+
+Start the app (`Start.cmd`) **before** opening OBS, or before switching to the Whatnot scene.
+If OBS was opened first, the Browser Source's first page load fails (OBS does not retry the
+initial load): right-click the Browser Source → **Refresh** once. After the page has loaded
+once, the overlay reconnects to the app on its own — restarting the app mid-show needs no
+refresh.
+
 ## 5. Whatnot considerations
 
 - Whatnot's app draws its own UI (chat, bid button, timer) over parts of the vertical video. The

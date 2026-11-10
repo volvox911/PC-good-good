@@ -30,6 +30,7 @@ scrubbed). Quick self-check: `.venv\Scripts\python -m gameoverlay check --live`.
 | Camera dropdown empty / "OBS not connected" | Connect OBS first; then reopen Settings. |
 | "Camera capture failed" / black stills | In the camera source properties untick *Deactivate when not showing*; make sure the ZV-1 is on and not used by another app. |
 | Overlay not visible in OBS | URL exactly `http://127.0.0.1:8765/overlay`; Browser Source above the camera; source visible (eye icon); width/height = canvas; *Reset Transform*. Dashboard top bar should say `· 1 src`. Remember the overlay is **empty until a game is recognized** — use *Design samples* in the dashboard preview to check the look. |
+| Overlay never connects (`· 0 src`) although URL is right | OBS was started before the app, so the first page load failed. Right-click the Browser Source → **Refresh** (needed only once; later restarts reconnect automatically). |
 | Overlay has a white/black box | Custom CSS was changed; restore the OBS default (transparent background). |
 | Overlay in the wrong place / too small | Browser Source width/height must equal the canvas; set size/position in the dashboard (not in OBS). |
 | Overlay shows old prices after restarting the app | It doesn't: on reconnect it follows the new backend state (empty until a verified record). If the backend is unreachable for longer than *Overlay hides after backend lost* (default 120 s) it hides by itself. |
