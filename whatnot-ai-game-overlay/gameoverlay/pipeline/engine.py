@@ -39,6 +39,7 @@ from ..pricing.client import PriceChartingAuthError, PriceChartingError
 from ..pricing.service import PriceUnavailable, PricingService
 from ..vision.change import ChangeDetector
 from ..vision.imaging import (
+    QUALITY_ADVICE,
     Fingerprint,
     encode_jpeg,
     fingerprint,
@@ -435,8 +436,9 @@ class Engine:
             cur.frame_jpeg = encode_jpeg(limit_long_side(best, 640), 80)
             cur.timings_ms["capture"] = int((time.monotonic() - t_start) * 1000)
             if not good:
-                problems = ", ".join(best_q.problems(dq.min_sharpness, dq.min_brightness, dq.max_brightness))
-                cur.status = f"Image quality too low ({problems}) — hold the game steady"
+                found = best_q.problems(dq.min_sharpness, dq.min_brightness, dq.max_brightness)
+                advice = "; ".join(QUALITY_ADVICE[x] for x in found if x in QUALITY_ADVICE) or "hold the game steady"
+                cur.status = f"Image quality too low ({', '.join(found)}) — {advice}"
                 self._set_state(PipelineState.DETECTING, cur.status)
                 self.detector.rearm()  # try again on the next calm period
                 return

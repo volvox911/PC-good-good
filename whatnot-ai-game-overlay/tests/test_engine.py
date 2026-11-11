@@ -209,6 +209,24 @@ async def test_blurry_image_never_calls_claude(h):
     assert "quality" in h.engine.current.status.lower()
 
 
+async def test_lit_game_on_black_backdrop_is_recognized(h):
+    """Operator report: a lit game on a black backdrop was rejected as 'too dark'."""
+    h.camera.backdrop = (8, 8, 8)
+    h.camera.item_scale = 0.75  # the game fills only part of the presentation area
+    await h.present("900101")
+    assert h.recognizer.calls >= 1, h.engine.current.status
+    assert h.hub.current is not None and h.hub.current.product_id == "900101"
+    assert h.engine.current.quality["subject"] < 0.5, "measured on the game, not the backdrop"
+
+
+async def test_dim_scene_asks_for_more_light(h):
+    h.camera.backdrop = (8, 8, 8)
+    h.camera.exposure = 0.12
+    await h.present("900101")
+    assert h.recognizer.calls == 0
+    assert "too dark" in h.engine.current.status and "more light" in h.engine.current.status
+
+
 async def test_spend_limit_pauses_detection(h):
     h.recognizer.fail_status = "spend_limit"
     await h.present("900101")

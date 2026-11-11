@@ -25,6 +25,9 @@ class FakeCamera:
         self.item: DemoItem | None = None
         self.connected = True
         self.blur = 0.0
+        self.backdrop = None  # plain backdrop colour (None = wood table)
+        self.exposure = 1.0
+        self.item_scale = 1.0
         self.jitter = 0.0
         self.t = 0.0
         self.shots = 0
@@ -37,7 +40,8 @@ class FakeCamera:
             from gameoverlay.obs.client import OBSNotConnected
 
             raise OBSNotConnected("down")
-        img = render_scene(self.item, t=self.t, jitter=self.jitter, blur=self.blur, size=(640, 360))
+        img = render_scene(self.item, t=self.t, jitter=self.jitter, blur=self.blur, size=(640, 360),
+                           backdrop=self.backdrop, exposure=self.exposure, item_scale=self.item_scale)
         return to_jpeg(img, width=min(width or 640, 640), quality=quality)
 
     def on_state(self, cb):

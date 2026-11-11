@@ -49,6 +49,69 @@ def test_dark_frame_rejected():
     assert "too dark" in measure_quality(dark).problems(60, 35, 235)
 
 
+# -- quality is judged on the game, not the backdrop around it ------------------------------
+
+def _backdrop(level, seed=3, w=1280, h=720, sigma=3.0):
+    rng = np.random.default_rng(seed)
+    return np.clip(np.full((h, w, 3), level, np.float32) + rng.normal(0, sigma, (h, w, 3)), 0, 255).astype(np.uint8)
+
+
+def _cartridge(w, h, body, label, exposure=1.0):
+    """A cartridge (plastic body) with a printed label: art block and lines of text."""
+    import cv2
+
+    g = np.full((h, w, 3), body, np.uint8)
+    lab = np.full((int(h * 0.55), int(w * 0.8), 3), label, np.uint8)
+    cv2.rectangle(lab, (10, 10), (lab.shape[1] - 10, lab.shape[0] // 2), (40, 60, 200), -1)
+    for k in range(4):
+        cv2.putText(lab, "SONIC 2", (14, 30 + 22 * k), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 2)
+    g[int(h * 0.1):int(h * 0.1) + lab.shape[0], int(w * 0.1):int(w * 0.1) + lab.shape[1]] = lab
+    return (g.astype(np.float32) * exposure).astype(np.uint8)
+
+
+def _on(backdrop, item, x=400, y=150, blur=0.0):
+    import cv2
+
+    out = backdrop.copy()
+    out[y:y + item.shape[0], x:x + item.shape[1]] = item
+    if blur:
+        out = cv2.GaussianBlur(out, (0, 0), blur)
+    return decode(to_jpeg_bgr(out))
+
+
+def to_jpeg_bgr(bgr) -> bytes:
+    import cv2
+
+    return cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
+
+
+def test_lit_game_on_black_backdrop_is_not_too_dark():
+    """Operator report: a lit game on a black backdrop was rejected as 'too dark'."""
+    for size in [(300, 200), (480, 320), (700, 470)]:
+        for body, label in [(40, 170), (25, 120), (110, 200)]:
+            q = measure_quality(_on(_backdrop(10), _cartridge(*size, body, label)))
+            assert q.problems(60, 35, 235) == [], (size, body, label, q.to_dict())
+            assert q.brightness >= 50 and q.subject < 0.5
+
+
+def test_underexposed_game_on_black_is_still_too_dark():
+    q = measure_quality(_on(_backdrop(6), _cartridge(480, 320, 40, 170, exposure=0.2)))  # too little light
+    assert "too dark" in q.problems(60, 35, 235)
+    empty = measure_quality(decode(to_jpeg_bgr(_backdrop(8))))
+    assert "too dark" in empty.problems(60, 35, 235) and empty.subject == 1.0
+
+
+def test_blur_is_judged_on_the_game_itself():
+    small = _cartridge(300, 200, 40, 170)
+    assert measure_quality(_on(_backdrop(10), small, blur=1.0)).acceptable(60, 35, 235), "slight blur is still readable"
+    assert "blurry" in measure_quality(_on(_backdrop(10), small, blur=3.0)).problems(60, 35, 235)
+
+
+def test_game_on_white_backdrop_is_not_too_bright():
+    q = measure_quality(_on(_backdrop(240, sigma=2.0), _cartridge(480, 320, 110, 200)))
+    assert q.problems(60, 35, 235) == [] and q.brightness < 200
+
+
 def test_fingerprints_same_vs_different():
     from gameoverlay.config import DetectionSettings
     from gameoverlay.vision.imaging import Fingerprint

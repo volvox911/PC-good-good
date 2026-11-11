@@ -63,19 +63,22 @@ def limit_long_side(img: np.ndarray, max_side: int) -> np.ndarray:
 
 @dataclass(frozen=True)
 class Quality:
+    """Image quality of the item being presented.
+
+    Measured on the item (the "subject"), not the whole presentation area: a well-lit game
+    on a black or white backdrop must not be judged too dark / too bright / blurry because
+    of the empty background around it. `subject` is the fraction of the frame measured.
+    """
+
     sharpness: float
     brightness: float
     contrast: float
     width: int
     height: int
+    subject: float = 1.0
 
     def acceptable(self, min_sharpness: float, min_brightness: float, max_brightness: float) -> bool:
-        return (
-            self.sharpness >= min_sharpness
-            and min_brightness <= self.brightness <= max_brightness
-            and self.contrast >= 12.0
-            and min(self.width, self.height) >= 120
-        )
+        return not self.problems(min_sharpness, min_brightness, max_brightness)
 
     def problems(self, min_sharpness: float, min_brightness: float, max_brightness: float) -> list[str]:
         p = []
@@ -98,7 +101,52 @@ class Quality:
             "contrast": round(self.contrast, 1),
             "width": self.width,
             "height": self.height,
+            "subject": round(self.subject, 2),
         }
+
+
+# What a problem means for the operator (shown on the dashboard).
+QUALITY_ADVICE = {
+    "blurry": "hold the game steady and in focus",
+    "too dark": "put more light on the game",
+    "too bright": "reduce the light or glare on the game",
+    "low contrast": "use a backdrop that contrasts with the game",
+    "too small": "make the presentation area larger",
+}
+
+SUBJECT_COLS = 20  # tiles across the 640 px analysis image (~32 px each)
+SUBJECT_TEXTURE = 10.0  # tile std (0..255) above which a tile holds detail (text, art, edges)
+SUBJECT_DIFF = 24.0  # tile mean this far from the backdrop's level belongs to the item
+SUBJECT_MIN_FRACTION = 0.03  # less than this: no clear item, measure the whole frame
+
+
+def subject_mask(gray: np.ndarray) -> np.ndarray:
+    """Pixels that belong to the presented item rather than the plain backdrop.
+
+    The backdrop level is the median brightness of the frame's border tiles. A tile is part
+    of the item when it has detail of its own or differs clearly from the backdrop. When no
+    clear item is found (empty or uniformly dark frame), the whole frame is used.
+    """
+    h, w = gray.shape
+    rows = max(4, round(SUBJECT_COLS * h / max(1, w)))
+    ys = [i * h // rows for i in range(rows + 1)]
+    xs = [j * w // SUBJECT_COLS for j in range(SUBJECT_COLS + 1)]
+    means = np.zeros((rows, SUBJECT_COLS))
+    stds = np.zeros((rows, SUBJECT_COLS))
+    for i in range(rows):
+        for j in range(SUBJECT_COLS):
+            t = gray[ys[i]:ys[i + 1], xs[j]:xs[j + 1]]
+            if t.size:
+                means[i, j], stds[i, j] = float(t.mean()), float(t.std())
+    border = np.concatenate([means[0], means[-1], means[1:-1, 0], means[1:-1, -1]])
+    backdrop = float(np.median(border))
+    tiles = (stds >= SUBJECT_TEXTURE) | (np.abs(means - backdrop) >= SUBJECT_DIFF)
+    mask = np.ones(gray.shape, dtype=bool)
+    if tiles.mean() >= SUBJECT_MIN_FRACTION:
+        mask[:] = False
+        for i, j in zip(*np.nonzero(tiles)):
+            mask[ys[i]:ys[i + 1], xs[j]:xs[j + 1]] = True
+    return mask
 
 
 def measure_quality(img: np.ndarray) -> Quality:
@@ -107,13 +155,15 @@ def measure_quality(img: np.ndarray) -> Quality:
     # Normalize scale so sharpness thresholds are resolution independent.
     scale = 640.0 / max(1, w)
     g = cv2.resize(gray, (640, max(1, int(h * scale))), interpolation=cv2.INTER_AREA) if w != 640 else gray
-    sharp = float(cv2.Laplacian(g, cv2.CV_64F).var())
+    mask = subject_mask(g)
+    px = g[mask].astype(np.float64)
     return Quality(
-        sharpness=sharp,
-        brightness=float(gray.mean()),
-        contrast=float(gray.std()),
+        sharpness=float(cv2.Laplacian(g, cv2.CV_64F)[mask].var()),
+        brightness=float(px.mean()),
+        contrast=float(px.std()),
         width=w,
         height=h,
+        subject=float(mask.mean()),
     )
 
 

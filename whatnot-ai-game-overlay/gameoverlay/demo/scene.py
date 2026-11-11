@@ -103,14 +103,19 @@ def render_scene(
     size: tuple[int, int] = (1280, 720),
     jitter: float = 0.0,
     blur: float = 0.0,
+    backdrop: tuple[int, int, int] | None = None,
+    exposure: float = 1.0,
+    item_scale: float = 1.0,
 ) -> Image.Image:
+    """`backdrop` = plain colour instead of the wood table; `exposure` < 1 dims the scene."""
     w, h = size
-    bg = Image.new("RGB", size, (72, 52, 38))
+    bg = Image.new("RGB", size, backdrop or (72, 52, 38))
     d = ImageDraw.Draw(bg)
-    for i in range(0, w, 64):  # wood grain
-        d.line([(i, 0), (i + 30, h)], fill=(80, 58, 42), width=18)
+    if backdrop is None:
+        for i in range(0, w, 64):  # wood grain
+            d.line([(i, 0), (i + 30, h)], fill=(80, 58, 42), width=18)
     if item is not None:
-        box = render_box(item).resize((int(h * 0.62 * 0.74), int(h * 0.62)))
+        box = render_box(item).resize((int(h * 0.62 * 0.74 * item_scale), int(h * 0.62 * item_scale)))
         dx = int(math.sin(t * 7.0) * jitter * 40)
         dy = int(math.cos(t * 5.0) * jitter * 25)
         bx = (w - box.width) // 2 + dx
@@ -120,6 +125,8 @@ def render_scene(
         d.ellipse([bx - 40, by + box.height - 120, bx + 70, by + box.height + 10], fill=(214, 170, 140))
     if blur:
         bg = bg.filter(ImageFilter.GaussianBlur(blur))
+    if exposure != 1.0:
+        bg = bg.point(lambda v: max(0, min(255, int(v * exposure))))
     return bg
 
 

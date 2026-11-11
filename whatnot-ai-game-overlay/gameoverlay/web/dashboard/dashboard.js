@@ -184,7 +184,8 @@ function renderCurrent(s) {
     img.hidden = false;
   }
   const q = cur.quality;
-  $("frameCaption").textContent = q ? `sharpness ${q.sharpness} · brightness ${q.brightness} · ${q.width}×${q.height}` : "No capture yet";
+  const area = q && q.subject !== undefined && q.subject < 0.995 ? ` · measured on the game (${Math.round(q.subject * 100)}% of frame)` : "";
+  $("frameCaption").textContent = q ? `sharpness ${q.sharpness} · brightness ${q.brightness}${area} · ${q.width}×${q.height}` : "No capture yet";
 
   // recognition
   const r = cur.recognition;
@@ -406,6 +407,8 @@ const SETTINGS_TABS = {
     { path: "detection.same_item_threshold", label: "Visual-memory threshold", type: "number", min: 0, max: 0.5, step: 0.01 },
     { path: "detection.visual_memory_enabled", label: "Reuse identification of returning games", type: "checkbox" },
     { path: "detection.min_sharpness", label: "Minimum sharpness", type: "number", min: 0, max: 5000, step: 5 },
+    { path: "detection.min_brightness", label: "Minimum brightness of the game (0–255)", type: "number", min: 0, max: 255, step: 1, help: "Measured on the game itself, not the backdrop around it. Lower it only if well-lit games are still reported as too dark." },
+    { path: "detection.max_brightness", label: "Maximum brightness of the game (0–255)", type: "number", min: 0, max: 255, step: 1 },
     { path: "detection.burst_frames", label: "Stills per capture", type: "number", min: 1, max: 5 },
     { path: "recognition.accept_score", label: "Auto-accept title score", type: "number", min: 50, max: 100, step: 1 },
     { path: "recognition.accept_margin", label: "Required lead over runner-up", type: "number", min: 0, max: 50, step: 1 },
