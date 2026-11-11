@@ -58,6 +58,7 @@ def test_defaults_match_design_brief():
     s = RuntimeSettings()
     assert s.overlay.position == "top-center" and s.overlay.edge_offset == 0.0
     assert s.overlay.round_whole_dollars is True
+    assert s.overlay.show_prices is True, "prices are shown on the stream unless the operator hides them"
     assert s.overlay.show_attribution is False and s.overlay.show_retrieval_time is False
     assert s.overlay.idle_panel is True
     assert s.pricing.price_refresh_s == 3600

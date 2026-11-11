@@ -112,9 +112,13 @@ class VerifiedRecord:
             demo=demo,
         )
 
-    def to_overlay_dict(self) -> dict:
-        """Public payload — the only game data that reaches OBS clients."""
-        return {
+    def to_overlay_dict(self, include_prices: bool = True) -> dict:
+        """Public payload — the only game data that reaches OBS clients.
+
+        With ``include_prices=False`` (operator chose "title only") the market values are
+        left out entirely, so they never reach the stream page.
+        """
+        d = {
             "title": self.title,
             "platform": self.platform,
             "productId": self.product_id,
@@ -129,6 +133,13 @@ class VerifiedRecord:
             "freshness": self.freshness,
             "demo": self.demo,
         }
+        if not include_prices:
+            for kind in ("loose", "complete", "new"):
+                d[kind + "Usd"] = None
+                d[kind + "Cents"] = None
+            d["freshness"] = "fresh"  # nothing price-related is shown, so nothing to label
+            d["pricesHidden"] = True
+        return d
 
 
 def iso(ts: float) -> str:

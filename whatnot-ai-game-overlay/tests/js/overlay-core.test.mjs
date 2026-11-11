@@ -113,6 +113,18 @@ test("plateText: idle dash, missing N/A, otherwise the price", () => {
   assert.equal(plateText(4295, { round: false }), "$42.95");
 });
 
+test("title-only mode: plates show nothing; a record without prices is still valid", () => {
+  assert.equal(plateText(4295, { hidden: true }), "");
+  assert.equal(plateText(null, { hidden: true }), "", "not even N/A");
+  assert.equal(plateText(null, { idle: true, hidden: true }), "", "no idle dash either");
+  const hidden = validateRecord({ ...good, looseUsd: null, completeUsd: null, newUsd: null, looseCents: null, completeCents: null, newCents: null, pricesHidden: true });
+  assert.ok(hidden.ok, hidden.error);
+  assert.equal(hidden.record.pricesHidden, true);
+  assert.equal(hidden.record.loose, null);
+  assert.equal(validateRecord(good).record.pricesHidden, false);
+  assert.ok(!sameRecord(hidden.record, validateRecord({ ...good, looseUsd: null, completeUsd: null, newUsd: null, looseCents: null, completeCents: null, newCents: null }).record));
+});
+
 test("fitScale: only narrows, never below the minimum", () => {
   assert.equal(fitScale(100, 200), 1);
   assert.equal(fitScale(200, 100), 0.5);

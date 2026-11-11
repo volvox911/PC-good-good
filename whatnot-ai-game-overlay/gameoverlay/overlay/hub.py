@@ -153,6 +153,7 @@ class OverlayHub:
             "showRetrievalTime": o.show_retrieval_time,
             "idlePanel": o.idle_panel,
             "roundWholeDollars": o.round_whole_dollars,
+            "showPrices": o.show_prices,
             "idleTitle": o.idle_title,
             "showProductLink": o.show_product_link,
             "reducedMotion": o.reduced_motion,
@@ -160,7 +161,8 @@ class OverlayHub:
         }
 
     def snapshot(self) -> dict:
-        rec = self.current.to_overlay_dict() if (self.visible and self.current) else None
+        show_prices = self._overlay_settings().show_prices
+        rec = self.current.to_overlay_dict(include_prices=show_prices) if (self.visible and self.current) else None
         return {
             "type": "state",
             "seq": self.seq,

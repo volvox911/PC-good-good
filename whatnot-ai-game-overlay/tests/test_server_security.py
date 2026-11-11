@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -269,6 +272,63 @@ def test_manual_select_drives_overlay(live):
         live.post("/api/overlay/clear", headers={"X-CSRF-Token": csrf})
         msg = ws.receive_json()
         assert msg["visible"] is False and msg["record"] is None
+
+
+def test_title_only_mode_never_sends_prices_to_the_stream(live):
+    """Operator hides market prices: the public overlay channel carries no price at all,
+    the dashboard still shows them, and switching back on restores them live."""
+    csrf = login(live)
+    h = {"X-CSRF-Token": csrf}
+    with live.websocket_connect("/ws/overlay") as ws:
+        assert ws.receive_json()["layout"]["showPrices"] is True
+        assert live.patch("/api/settings", json={"overlay": {"show_prices": False}}, headers=h).status_code == 200
+        assert ws.receive_json()["layout"]["showPrices"] is False
+        assert live.post("/api/select", json={"productId": "900101"}, headers=h).status_code == 200
+        msg = ws.receive_json()
+        while not msg.get("visible"):
+            msg = ws.receive_json()
+        rec = msg["record"]
+        assert rec["title"] == "Zelda Ocarina of Time" and rec["platform"] == "NINTENDO 64" and rec["pricesHidden"] is True
+        assert [rec[k] for k in ("looseUsd", "completeUsd", "newUsd", "looseCents", "completeCents", "newCents")] == [None] * 6
+        # timestamps aside (their digits are arbitrary), nothing sent contains a price
+        raw = json.dumps({**msg, "serverTime": None, "record": {**rec, "retrievedAt": None}})
+        for value in ("4250", "10999", "59900", "42.5", "109.99", "599"):
+            assert value not in raw, f"price {value} leaked to the stream page"
+        # the operator still sees the real prices
+        on_air = live.get("/api/status").json()["overlay"]
+        assert on_air["showPrices"] is False
+        assert (on_air["record"]["looseCents"], on_air["record"]["completeCents"], on_air["record"]["newCents"]) == (4250, 10999, 59900)
+        # switched back on while the game is still up: prices return without re-recognizing
+        assert live.patch("/api/settings", json={"overlay": {"show_prices": True}}, headers=h).status_code == 200
+        msg = ws.receive_json()
+        assert msg["layout"]["showPrices"] is True and "pricesHidden" not in msg["record"]
+        assert (msg["record"]["looseCents"], msg["record"]["completeCents"], msg["record"]["newCents"]) == (4250, 10999, 59900)
+
+
+def test_title_only_frame_is_built_from_the_operators_frame(live):
+    """header-skin-title.png is the operator's frame minus the price plates, and in sync
+    with scripts/make_title_skin.py."""
+    import importlib.util
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("make_title_skin", root / "scripts" / "make_title_skin.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    r = live.get("/overlay/static/header-skin-title.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    served = np.asarray(Image.open(io.BytesIO(r.content)).convert("RGBA")).astype(int)
+    skin = Image.open(root / "gameoverlay" / "web" / "overlay" / "header-skin.png")
+    original = np.asarray(skin.convert("RGBA")).astype(int)
+    assert served.shape == original.shape
+    assert np.array_equal(served, np.asarray(mod.build(skin)).astype(int)), "re-run scripts/make_title_skin.py"
+    assert np.array_equal(served[:, :mod.DST_X0], original[:, :mod.DST_X0]), "slash, rivets and title section untouched"
+    assert np.array_equal(served[..., 3], original[..., 3]), "same outline"
+    plates = served[40:110, 490:900, :3]
+    assert plates.max() < 140, "no cream price plate left in the title-only frame"
 
 
 def test_select_rejects_invalid_ids(live):

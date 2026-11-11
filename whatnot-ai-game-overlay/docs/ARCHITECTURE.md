@@ -93,4 +93,7 @@ Single local Python process (FastAPI + asyncio) — no Docker, no cloud hosting,
 ```
 
 The overlay formats from the integer cents; it rejects records where cents and USD disagree.
+When the operator hides market prices (`overlay.show_prices = false`, "title only"), the hub
+sends the record with every price field `null` plus `"pricesHidden": true` — the values never
+reach the public page — while the admin-only dashboard status keeps the full record.
 `window.setGameOverlayData(record)` accepts the same record shape (the design brief's contract).

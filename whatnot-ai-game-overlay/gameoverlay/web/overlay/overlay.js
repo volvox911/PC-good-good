@@ -11,6 +11,8 @@
 //   the plates showing "—" (unless the operator turns the idle strip off). The page never
 //   contains sample data. ?preview=1 is the dashboard's watermarked design preview, fed by
 //   postMessage; it never opens the live socket.
+// * "Title only" (operator setting): the plate-free version of the same frame with just the
+//   game and its system. The backend then sends no prices to this page at all.
 
 import { fitScale, formatCents, idleRecord, KINDS, plateText, reconnectDelay, sameRecord, validateRecord } from "./overlay-core.js";
 
@@ -36,6 +38,7 @@ let layout = {
   idlePanel: true,
   idleTitle: "Price Guide",
   roundWholeDollars: true,
+  showPrices: true,
   disconnectHideMs: 120000,
 };
 let demoMode = false;
@@ -100,6 +103,7 @@ function adjustText() {
   syncUnits();
   fitLine(els.title, els.title.parentElement.clientWidth - 6);
   fitLine(els.system, els.system.parentElement.clientWidth - 6);
+  if (els.header.classList.contains("title-only")) return; // plates are not drawn
   for (const key of KINDS) fitSpan(els[key], els[key].parentElement.clientWidth - 4);
 }
 
@@ -114,23 +118,34 @@ function scheduleFit() {
 }
 
 // ------------------------------------------------------------------ rendering
+/** Display options that change what a record looks like (a change forces a re-render). */
+const displayOptions = () => `${layout.roundWholeDollars !== false}|${layout.showPrices !== false}|${layout.idleTitle}|${demoMode}`;
+
+/** Title-only mode: the operator hid the market values, or the record came without them. */
+const pricesHidden = (rec) => layout.showPrices === false || rec.pricesHidden === true;
+
 /** Single synchronous write of every field, fitted before the browser paints it. */
 function render(rec) {
   const idle = rec.idle === true;
   const round = layout.roundWholeDollars !== false;
-  const stale = !idle && rec.freshness === "stale";
+  const hidden = pricesHidden(rec);
+  const stale = !idle && !hidden && rec.freshness === "stale";
+  els.header.classList.toggle("title-only", hidden); // plate-free frame, wider title
+  document.body.dataset.prices = hidden ? "hidden" : "shown";
   setText(els.title, text(rec.title));
   setText(els.system, idle ? "" : text(rec.platform) + (stale ? " · CACHED" : ""));
-  for (const key of KINDS) setText(els[key], plateText(rec[key], { idle, round }));
+  for (const key of KINDS) setText(els[key], plateText(rec[key], { idle, round, hidden }));
   els.demoMark.hidden = !(PREVIEW || demoMode || rec.demo);
   document.body.dataset.content = idle ? "idle" : "record";
   els.header.setAttribute(
     "aria-label",
     idle
-      ? "Price guide — waiting for the next game"
-      : `${rec.title}, ${rec.platform}. Loose ${formatCents(rec.loose)}, complete ${formatCents(rec.complete)}, new ${formatCents(rec.new)}.`,
+      ? "Waiting for the next game"
+      : hidden
+        ? `${rec.title}, ${rec.platform}.`
+        : `${rec.title}, ${rec.platform}. Loose ${formatCents(rec.loose)}, complete ${formatCents(rec.complete)}, new ${formatCents(rec.new)}.`,
   );
-  renderedWith = `${round}|${layout.idleTitle}|${demoMode}`;
+  renderedWith = displayOptions();
   adjustText();
 }
 
@@ -142,8 +157,7 @@ function apply(next) {
     for (const el of [els.title, els.system, els.loose, els.complete, els.new]) setText(el, ""); // no stale game data left in the DOM
     return;
   }
-  const options = `${layout.roundWholeDollars !== false}|${layout.idleTitle}|${demoMode}`;
-  if (!(shown && sameRecord(shown, next) && options === renderedWith)) render(next);
+  if (!(shown && sameRecord(shown, next) && displayOptions() === renderedWith)) render(next);
   shown = next;
   document.body.dataset.overlay = "visible";
 }

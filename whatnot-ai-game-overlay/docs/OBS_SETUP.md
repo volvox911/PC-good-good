@@ -82,6 +82,9 @@ refresh.
   Overlay, e.g. 0.03) until it sits just below them.
 - The strip stays on screen between games with its prices cleared. To hide it entirely when no
   game is shown, untick *Keep the strip on screen between games*.
+- To show only the game's name and system (no market values), click **Hide stream prices** on
+  the dashboard (key **V**); click it again to bring the prices back. It takes effect on the
+  stream immediately and you keep seeing the prices on the dashboard.
 - If you ever restart the app during a show, OBS does not need a refresh — the overlay
   reconnects automatically and shows the cleared strip until the next verified record.
 - After you **update the app**, an open OBS page notices the new version and reloads itself

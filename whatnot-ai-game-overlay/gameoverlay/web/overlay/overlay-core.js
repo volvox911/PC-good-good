@@ -4,7 +4,8 @@
 //   { title, platform, productId, verified: true,
 //     looseUsd|null, completeUsd|null, newUsd|null,       // numbers (brief API)
 //     looseCents|null, completeCents|null, newCents|null,  // exact integers (backend)
-//     retrievedAt: ISO string, freshness?: 'fresh'|'cached'|'stale', demo?: boolean }
+//     retrievedAt: ISO string, freshness?: 'fresh'|'cached'|'stale', demo?: boolean,
+//     pricesHidden?: true }   // operator chose "title only": prices are not sent at all
 
 export const KINDS = ["loose", "complete", "new"];
 export const NA = "N/A";
@@ -90,6 +91,7 @@ export function validateRecord(raw, { allowMissingTime = false } = {}) {
       retrievedAt,
       freshness,
       demo: raw.demo === true,
+      pricesHidden: raw.pricesHidden === true,
     },
   };
 }
@@ -107,13 +109,18 @@ export function idleRecord(title = "") {
     retrievedAt: null,
     freshness: "fresh",
     demo: false,
+    pricesHidden: false,
   };
 }
 
 export const PLACEHOLDER = "—";
 
-/** The text a price plate shows: idle "—", missing "N/A" (never "$0.00"), else the price. */
-export function plateText(cents, { idle = false, round = true } = {}) {
+/**
+ * The text a price plate shows: idle "—", missing "N/A" (never "$0.00"), else the price.
+ * With `hidden` (title-only mode) nothing at all — not even a placeholder.
+ */
+export function plateText(cents, { idle = false, round = true, hidden = false } = {}) {
+  if (hidden) return "";
   if (idle) return PLACEHOLDER;
   return formatDisplayPrice(cents, round);
 }
@@ -139,7 +146,8 @@ export function sameRecord(a, b) {
     a.complete === b.complete &&
     a.new === b.new &&
     a.freshness === b.freshness &&
-    a.demo === b.demo
+    a.demo === b.demo &&
+    !!a.pricesHidden === !!b.pricesHidden
   );
 }
 

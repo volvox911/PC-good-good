@@ -233,6 +233,10 @@ class OverlaySettings(BaseModel):
     # Viewer overlay shows prices rounded to whole dollars (operator request). The dashboard
     # and history always keep exact cents. Values under $1 are shown exactly, never as $0.
     round_whole_dollars: bool = True
+    # Show the Loose / Complete / New market values on the stream. Off = title only: viewers
+    # see just the game and its system; prices are not sent to the stream page at all. The
+    # operator dashboard always shows the prices.
+    show_prices: bool = True
     # Keep the band on screen between games (cleared, no prices) instead of hiding it.
     idle_panel: bool = True
     idle_title: str = Field(default="Price Guide", max_length=40)

@@ -215,6 +215,7 @@ class Services:
                 "seq": self.hub.seq,
                 "shownAt": self.hub.shown_at,
                 "url": f"{self.config.base_url}/overlay",
+                "showPrices": s.overlay.show_prices,
             },
             "setupCompleted": s.setup_completed,
         }

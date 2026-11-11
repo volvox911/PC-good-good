@@ -54,3 +54,18 @@ async def test_snapshot_is_full_state():
     assert snap["visible"] and snap["record"]["productId"] == "2" and snap["record"]["title"] == "B"
     h.hide("x")
     assert h.snapshot()["record"] is None
+
+
+
+async def test_title_only_snapshot_carries_no_prices():
+    settings = OverlaySettings(show_prices=False)
+    h = OverlayHub(False, lambda: settings, lambda: DisplaySettings())
+    h.show(rec("7", "Game"))
+    snap = h.snapshot()
+    assert snap["layout"]["showPrices"] is False
+    r = snap["record"]
+    assert r["title"] == "Game" and r["platform"] == "NES" and r["pricesHidden"] is True
+    assert all(r[k] is None for k in ("looseUsd", "completeUsd", "newUsd", "looseCents", "completeCents", "newCents"))
+    assert h.current.loose_cents == 100, "the record itself (operator's view) keeps its prices"
+    settings = OverlaySettings()  # turned back on
+    assert h.snapshot()["record"]["looseCents"] == 100 and "pricesHidden" not in h.snapshot()["record"]

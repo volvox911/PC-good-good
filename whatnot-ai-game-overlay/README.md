@@ -63,6 +63,12 @@ prices are live text on top of it.
   written in one step, already fitted, with no transition. Long names and big prices are
   narrowed horizontally to fit their frame or plate (the design's own fitting method), so
   `THE LEGEND OF ZELDA: MAJORA'S MASK` and `$1,245.99` / `$123,457` fit without clipping.
+- **Title only, when you want it.** *Hide stream prices* (dashboard button, key **V**, or
+  Settings → Display & Overlay → *Show market prices on the stream*) switches the stream to
+  just the game and its system on the same frame without the price plates
+  ([screenshot](docs/screenshots/title-only_1080x1920.png)). It switches live in both
+  directions, the prices are then not sent to the stream page at all, and the dashboard keeps
+  showing them to you.
 - **The strip stays on screen between games.** When a game leaves, the title spot shows
   `PRICE GUIDE` and the plates show dashes. Untick *Keep the strip on screen between games* to
   hide it completely instead.

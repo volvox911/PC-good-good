@@ -100,6 +100,19 @@ body.preview, body.preview .broadcast { background:#030303; }
    operator turned the idle strip off). */
 body[data-overlay="hidden"] .header { visibility:hidden; }
 
+/* "Title only" — the operator hid the market prices on the stream. Same frame without the
+   price plates (header-skin-title.png, built from header-skin.png by scripts/make_title_skin.py),
+   with the title and system centred in the wider plate. Type sizes are unchanged. Both frames
+   are loaded up front, so switching modes never flashes or moves the strip. */
+.frame-skin-title { visibility:hidden; }
+.header.title-only .frame-skin { visibility:hidden; }
+.header.title-only .frame-skin-title { visibility:visible; }
+.header.title-only .value-plate { display:none; }
+.header.title-only .title-area { width:81.5%; }
+.header.title-only .title-frame { justify-content:center; }
+.header.title-only .game-title { transform-origin:center center; }
+.header.title-only .flourish { left:32.56%; width:34.87%; }
+
 /* Demo mode / dashboard design preview only: sample values are never shown unmarked. */
 .demo-mark {
   position:absolute; left:50%; top:calc(100% + 1.2 * var(--u, 1cqw)); transform:translateX(-50%);

@@ -109,7 +109,7 @@ function renderPills(s) {
     pill("Claude", ai.replace("_", " "), aiCls),
     pill("PriceCharting", pc.replace("_", " "), pcCls),
     pill("Detection", eng.detectionEnabled ? "active" : "paused", detCls),
-    pill("Overlay", `${ov.visible ? "game shown" : "idle"} · ${ov.clients} src`, ov.clients > 0 ? "ok" : "warn"),
+    pill("Overlay", `${ov.visible ? "game shown" : "idle"}${ov.showPrices === false ? " · title only" : ""} · ${ov.clients} src`, ov.clients > 0 ? "ok" : "warn"),
     pill("Spend (est.)", spend, usage.limitReached ? "err" : ""),
   );
 }
@@ -263,6 +263,11 @@ function renderCurrent(s) {
   $("btnPause").classList.toggle("on", !eng.detectionEnabled);
   $("btnHold").firstChild.textContent = eng.held ? "Release hold " : "Hold game ";
   $("btnHold").classList.toggle("on", eng.held);
+  // Market prices on the stream (the operator always sees them here).
+  const streamPrices = s.overlay.showPrices !== false;
+  $("btnPrices").firstChild.textContent = streamPrices ? "Hide stream prices " : "Show stream prices ";
+  $("btnPrices").classList.toggle("on", !streamPrices);
+  $("streamPricesNote").hidden = streamPrices;
   $("btnPending").hidden = !eng.pendingWhileHeld;
   if (eng.pendingWhileHeld) $("btnPending").textContent = `Show new game: ${eng.pendingWhileHeld.title}`;
 
@@ -425,6 +430,7 @@ const SETTINGS_TABS = {
     { path: "overlay.opacity", label: "Opacity", type: "number", min: 0.3, max: 1, step: 0.05 },
     { path: "overlay.idle_panel", label: "Keep the strip on screen between games", type: "checkbox", help: "When a game leaves, the strip stays up with its prices cleared. Untick to hide it completely between games." },
     { path: "overlay.idle_title", label: "Text shown between games", type: "text", help: "Shown in the title spot while no game is on screen (leave empty for none)." },
+    { path: "overlay.show_prices", label: "Show market prices on the stream", type: "checkbox", help: "Off = title only: viewers see just the game and its system. You still see the prices here on the dashboard. Same as the “Hide stream prices” button (key V)." },
     { path: "overlay.round_whole_dollars", label: "Round prices to whole dollars on the overlay", type: "checkbox", help: "On: $42.50 shows as $43. Off: exact cents. Your dashboard and history always show exact cents." },
     { path: "overlay.canvas_width", label: "OBS canvas width (preview)", type: "number", min: 320, max: 7680 },
     { path: "overlay.canvas_height", label: "OBS canvas height (preview)", type: "number", min: 320, max: 7680 },
@@ -711,7 +717,7 @@ const WIZ = [
     render: async () =>
       h("div", {},
         h("p", { text: "Hold a game steady inside the presentation area. Within a few seconds the dashboard shows the recognized title and PriceCharting match, and the overlay appears on stream." }),
-        h("p", { class: "hint", text: "Keyboard: P pause/resume · S scan now · H hold · C clear · R refresh prices · / search · U UPC · 1–9 pick a suggestion." })),
+        h("p", { class: "hint", text: "Keyboard: P pause/resume · S scan now · H hold · C clear · R refresh prices · V show/hide prices on stream · / search · U UPC · 1–9 pick a suggestion." })),
   },
 ];
 
@@ -777,6 +783,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "h") $("btnHold").click();
   else if (k === "c") $("btnClear").click();
   else if (k === "r") $("btnRefresh").click();
+  else if (k === "v") $("btnPrices").click();
   else if (k === "u") { e.preventDefault(); $("upcInput").focus(); }
   else if (e.key === "/") { e.preventDefault(); $("searchInput").focus(); }
   else if (/^[1-9]$/.test(e.key)) {
@@ -796,6 +803,14 @@ $("btnScan").addEventListener("click", () => act(() => api("/api/detection/resca
 $("btnHold").addEventListener("click", () => act(() => api("/api/overlay/hold", { method: "POST", body: { on: !(status && status.engine.held) } })));
 $("btnClear").addEventListener("click", () => act(() => api("/api/overlay/clear", { method: "POST" }), "Overlay cleared"));
 $("btnRefresh").addEventListener("click", () => act(() => api("/api/prices/refresh", { method: "POST" }), "Prices refreshed"));
+$("btnPrices").addEventListener("click", async () => {
+  const show = !(status && status.overlay.showPrices !== false); // toggle
+  const r = await act(() => api("/api/settings", { method: "PATCH", body: { overlay: { show_prices: show } } }), show ? "Prices are shown on the stream" : "Prices hidden on the stream — title only");
+  if (r) {
+    settings = r;
+    if (!$("settings").hidden) renderSettings();
+  }
+});
 $("btnPending").addEventListener("click", () => act(() => api("/api/overlay/show-pending", { method: "POST" })));
 $("searchForm").addEventListener("submit", (e) => { e.preventDefault(); doSearch($("searchInput").value); });
 $("upcForm").addEventListener("submit", (e) => {

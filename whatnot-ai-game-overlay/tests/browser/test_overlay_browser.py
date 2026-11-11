@@ -444,6 +444,92 @@ def test_outdated_page_never_reload_loops(server, page_factory):
     assert page.evaluate("document.body.dataset.overlay") == "visible", "keeps working on the old page"
 
 
+def _pixel(png: bytes, xy):
+    return Image.open(io.BytesIO(png)).convert("RGBA").getpixel(xy)
+
+
+def test_title_only_mode_hides_prices_and_toggles_live(server, page_factory):
+    """Operator option: show just the game and its system; switch prices back on live."""
+    page = page_factory(1080, 1920)
+    frames: list[str] = []
+    page.on("websocket", lambda ws: ws.on("framereceived", lambda payload: frames.append(payload)))
+    page.goto(server.base + "/overlay")
+    show(server, "900101")
+    wait_for_product(page, "900101")
+    wait_ready(page)
+    before = page.evaluate(MEASURE)
+    assert [p["text"] for p in before["prices"]] == ["$43", "$110", "$599"]
+    x0, y0, x1, y1 = before["header"]
+    plate = (int(x0 + 0.527 * (x1 - x0)), int(y0 + 0.71 * (y1 - y0)))  # cream corner of the LOOSE plate, clear of the digits
+    assert min(_pixel(page.screenshot(omit_background=True), plate)[:3]) > 150, "cream plate with prices on"
+    try:
+        server.api("PATCH", "/api/settings", {"overlay": {"show_prices": False}})
+        page.wait_for_function("document.body.dataset.prices === 'hidden'")
+        page.wait_for_timeout(150)
+        m = page.evaluate(MEASURE)
+        assert m["header"] == before["header"], "the strip stays exactly where it was"
+        assert [p["text"] for p in m["prices"]] == ["", "", ""]
+        assert (m["title"]["text"], m["system"]["text"]) == ("Zelda Ocarina of Time", "NINTENDO 64")
+        assert m["title"]["insideX"] and m["system"]["insideX"] and m["title"]["insideStrip"]
+        assert page.evaluate("[...document.querySelectorAll('.value-plate')].every(e => getComputedStyle(e).display === 'none')")
+        assert "$" not in page.evaluate("document.getElementById('header').textContent")
+        png = page.screenshot(omit_background=True)
+        px = _pixel(png, plate)
+        assert px[3] > 0 and max(px[:3]) < 110, f"plain metal where the plate was, got {px}"
+        assert alpha_at(png, (540, 960)) == 0
+        assert page.evaluate("document.getAnimations().length") == 0, "switching modes is instant"
+        SHOT_DIR.mkdir(parents=True, exist_ok=True)
+        (SHOT_DIR / "title-only_1080x1920.png").write_bytes(png)
+
+        # a new game while prices are hidden: still title only, and no price reaches the page
+        n = len(frames)
+        show(server, "900801")
+        wait_for_product(page, "900801")
+        m = page.evaluate(MEASURE)
+        assert m["title"]["text"] == "Teenage Mutant Ninja Turtles II The Arcade Game" and m["title"]["insideX"]
+        assert m["title"]["width"] > before["title"]["width"], "the name gets the room the plates used"
+        assert [p["text"] for p in m["prices"]] == ["", "", ""]
+        states = [json.loads(f) for f in frames[n:] if '"state"' in f]
+        assert states and all(st["record"] is None or st["record"].get("pricesHidden") for st in states)
+        for st in states:
+            if st["record"]:
+                assert [st["record"][k] for k in ("looseCents", "completeCents", "newCents", "looseUsd", "completeUsd", "newUsd")] == [None] * 6
+
+        # between games
+        server.api("POST", "/api/overlay/clear")
+        page.wait_for_function("document.body.dataset.content === 'idle'")
+        assert page.evaluate(IDS) == ["Price Guide", "", "", "", ""]
+
+        # prices switched back on while a game is up: they return without a new scan
+        show(server, "900101")
+        wait_for_product(page, "900101")
+        server.api("PATCH", "/api/settings", {"overlay": {"show_prices": True}})
+        page.wait_for_function("document.getElementById('price-loose').textContent === '$43'")
+        after = page.evaluate(MEASURE)
+        assert after["header"] == before["header"] and [p["text"] for p in after["prices"]] == ["$43", "$110", "$599"]
+        assert after["title"]["width"] == pytest.approx(before["title"]["width"], abs=0.5)
+        assert min(_pixel(page.screenshot(omit_background=True), plate)[:3]) > 150
+    finally:
+        server.api("PATCH", "/api/settings", {"overlay": {"show_prices": True}})
+    assert page.errors == []
+
+
+def test_title_only_mode_on_a_phone(server, page_factory):
+    page = page_factory(360, 640)
+    page.goto(server.base + "/overlay")
+    try:
+        server.api("PATCH", "/api/settings", {"overlay": {"show_prices": False}})
+        show(server, "900801")
+        wait_for_product(page, "900801")
+        page.wait_for_function("document.body.dataset.prices === 'hidden'")
+        wait_ready(page)
+        m = page.evaluate(MEASURE)
+        assert m["title"]["insideX"] and m["system"]["insideX"] and m["title"]["insideStrip"]
+        assert m["header"][3] <= 640 * 0.1
+    finally:
+        server.api("PATCH", "/api/settings", {"overlay": {"show_prices": True}})
+
+
 def test_update_docs_screenshots():
     """Copies the main renders into docs/screenshots (set WGO_UPDATE_DOC_SCREENSHOTS=1)."""
     import os
@@ -455,7 +541,8 @@ def test_update_docs_screenshots():
     DOCS_SHOTS.mkdir(parents=True, exist_ok=True)
     for f in ["standard_1080x1920.png", "long-title_1080x1920.png", "six-figure_1080x1920.png",
               "missing-na_720x1280.png", "standard_1920x1080.png", "low-values_720x1280.png",
-              "standard_360x640.png", "stress_1080x1920.png", "idle_1080x1920.png", "demo_preview_1080x1920.png"]:
+              "standard_360x640.png", "stress_1080x1920.png", "idle_1080x1920.png", "demo_preview_1080x1920.png",
+              "title-only_1080x1920.png"]:
         src = SHOT_DIR / f
         if src.exists():
             shutil.copy(src, DOCS_SHOTS / f)

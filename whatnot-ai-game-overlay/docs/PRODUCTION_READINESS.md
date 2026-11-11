@@ -18,7 +18,7 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 | Recognition | Anthropic SDK `beta.messages.parse` with a Pydantic schema (title, platform from PriceCharting's console vocabulary, region, edition, evidence, confidence, obscured flag, more-images flag), `claude-opus-5-5` at effort `low` (configurable), server-side refusal fallbacks, refusal → "not identified", prompt caching, per-session spend limit + requests/minute cap + cost estimates. |
 | Matching | Console family + region must match; title similarity with significant numbers (sequels, "3D"); edition adjustments; accept score + margin over runner-up + minimum confidence; UPC when legible; match cache; manual corrections override automatic matches. |
 | State machine | Idle / Detecting / Recognizing / Matching / Price lookup / Displaying / Needs confirmation / Error / Paused; generation-based supersession; corroboration before replacing a game; minimum display time; unidentified/empty grace periods; display timeout; hold with "show new game"; rescan. |
-| Overlay | The operator's Joe Dirt price strip (supplied `index.html` / `style.css` / `overlay.js` / text-free `header-skin.png`, used directly): ≈170 px at the top of a 1080×1920 frame, transparent elsewhere; exact font families from the design's font guide (Knewave, Barlow Condensed, Anton) bundled under the OFL; whole-dollar prices (configurable), `N/A`; horizontal-only text fitting so long names and six-figure prices fit; atomic updates with no transition and no frame movement; stays on screen between games with prices cleared (configurable); container-unit fallback for older OBS; read-only auto-reconnecting WebSocket; self-reload once after an app update; hides prices after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
+| Overlay | The operator's Joe Dirt price strip (supplied `index.html` / `style.css` / `overlay.js` / text-free `header-skin.png`, used directly): ≈170 px at the top of a 1080×1920 frame, transparent elsewhere; exact font families from the design's font guide (Knewave, Barlow Condensed, Anton) bundled under the OFL; whole-dollar prices (configurable), `N/A`; live "title only" switch (plate-free version of the same frame; prices are then not sent to the stream page, the dashboard keeps them); horizontal-only text fitting so long names and six-figure prices fit; atomic updates with no transition and no frame movement; stays on screen between games with prices cleared (configurable); container-unit fallback for older OBS; read-only auto-reconnecting WebSocket; self-reload once after an app update; hides prices after a long backend outage; `window.setGameOverlayData(record)` API; watermarked demo/preview. |
 | Dashboard | Status, current item + evidence + suggestions, controls with keyboard shortcuts, manual search, UPC/barcode scanner, on-air and design previews, history + recall, settings (all thresholds, crop editor, background capture), first-run wizard. |
 | Security | 127.0.0.1-only bind by default, one-time sign-in links (the permanent admin token is only ever POSTed, never put in URLs), signed HttpOnly SameSite=Strict session cookie, CSRF tokens, Host/Origin checks (DNS rebinding; overlay sockets too), strict CSP, public overlay limited to read-only data, admin token redacted from logs. |
 | Reliability | Engine loop never dies (errors are reported), structured JSON logs, graceful shutdown, crash detection on next start, auto-restart wrapper in `Start.cmd`, bounded memory structures, DB pruning. |
@@ -29,12 +29,12 @@ ZV-1, no Anthropic API key and no PriceCharting token were available.**
 
 Run with `Run-Tests.cmd` (Windows) or `.venv/bin/python -m pytest -q && node --test "tests/js/*.test.mjs"`.
 
-- **Python: 209 passed**, 6 skipped — the skips are the 5 opt-in live tests (no credentials here)
-  and the opt-in docs-screenshot export. Includes 20 Playwright browser tests of the price strip
+- **Python: 221 passed**, 6 skipped — the skips are the 5 opt-in live tests (no credentials here)
+  and the opt-in docs-screenshot export. Includes 22 Playwright browser tests of the price strip
   (1080×1920, 720×1280, 1920×1080 and 360 px phone; long names and `$1,245.99` fit; whole-dollar
   rounding; no frame movement or transition on update; exact fonts; older-OBS unit fallback;
   self-reload after an app update).
-- **JavaScript: 12 passed** (`node --test`).
+- **JavaScript: 13 passed** (`node --test`).
 - **Real-time demo soak:** the demo server ran the full pipeline continuously for ~33 minutes
   (fake OBS camera through the real WebSocket client, mock vision, mock PriceCharting through
   the real rate-limited client) at ~2.6 % CPU and ~146–152 MB RSS. See section 8 for the
